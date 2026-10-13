@@ -103,6 +103,13 @@ once LiveKit ships the fix.
 Listeners hear the stereo on Rift 1.5.0-beta.1 or newer; an older Rift plays it in
 mono.
 
+Members see the bot come and go. `join_voice` tells the server's members which
+channel the bot is in, and the connection tells them again when it closes, for
+any reason, the way a member's app does when it moves. Before 0.1.1 a bot said
+nothing, and a member's sidebar could keep drawing it in a call it had left
+until that member restarted Rift. `leave()` returns once they have been told
+(five seconds at most).
+
 ## Documentation
 
 | Document | For |

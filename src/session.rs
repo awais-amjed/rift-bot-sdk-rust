@@ -62,6 +62,9 @@ struct Inner {
     chat_identity: ChatIdentity,
     http: reqwest::Client,
     auth: RwLock<Auth>,
+    /// The calls this session is in, for what it tells members (`voice_location`).
+    #[cfg(feature = "voice")]
+    voice_places: tokio::sync::Mutex<crate::voice_location::VoicePlaces>,
 }
 
 /// A signed-in bot on one server. Cheap to clone: clones share one session.
@@ -114,6 +117,8 @@ impl BotSession {
                 chat_identity: derive_chat_identity(seed, &host),
                 http: http_client(),
                 auth: RwLock::new(Auth { anon_key: anon_key.to_string(), ..Auth::default() }),
+                #[cfg(feature = "voice")]
+                voice_places: Default::default(),
             }),
         })
     }
@@ -196,6 +201,11 @@ impl BotSession {
 
     pub fn server_id(&self) -> &str {
         &self.inner.server_id
+    }
+
+    #[cfg(feature = "voice")]
+    pub(crate) fn voice_places(&self) -> &tokio::sync::Mutex<crate::voice_location::VoicePlaces> {
+        &self.inner.voice_places
     }
 
     pub fn identity(&self) -> &ServerIdentity {

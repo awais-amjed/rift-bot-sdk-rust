@@ -23,6 +23,8 @@ mod test_server;
 mod tls;
 #[cfg(feature = "voice")]
 pub mod voice;
+#[cfg(feature = "voice")]
+mod voice_location;
 #[cfg(all(test, feature = "voice"))]
 mod voice_live_test;
 

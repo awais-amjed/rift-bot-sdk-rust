@@ -40,6 +40,7 @@ use tokio::sync::watch;
 use crate::error::{BotError, Result};
 use crate::sealed::{Wrapped, unwrap_key};
 use crate::session::BotSession;
+use crate::voice_location::announce_place;
 
 /// What `ffmpeg -f s16le -ar 48000 -ac 2` produces, and what is published.
 pub const SAMPLE_RATE: u32 = 48_000;
@@ -62,6 +63,9 @@ pub const BOT_KEY_INDEX: i32 = 0;
 
 /// `music`: 128 kbps, LiveKit's `MUSIC_HIGH_QUALITY_STEREO`.
 pub const MUSIC_BITRATE: u64 = 128_000;
+
+/// How long [`VoiceConnection::leave`] waits for members to be told.
+const LEAVE_TELL_WAIT: Duration = Duration::from_secs(5);
 
 /// How much sound waits in LiveKit's queue ahead of what is playing. Feeding
 /// faster than real time fills it and then waits, so it is also the pacing;
@@ -104,6 +108,9 @@ pub struct VoiceConnection {
     playing: Arc<AtomicBool>,
     source: std::sync::Mutex<Option<NativeAudioSource>>,
     closed: watch::Receiver<bool>,
+    /// Settles once members have been told this bot left; `None` for a
+    /// connection made without a session, which tells nobody.
+    said_left: Option<watch::Receiver<bool>>,
 }
 
 impl VoiceConnection {
@@ -134,6 +141,8 @@ impl VoiceConnection {
     /// the channel, the room closing). The second kind is the one a bot cannot
     /// see coming, and the connection is the only thing that knows. A closed
     /// connection cannot play again: join anew.
+    ///
+    /// Members are told the bot left either way (`voice_location`).
     ///
     /// [`leave`]: Self::leave
     pub async fn closed(&self) {
@@ -256,10 +265,20 @@ impl VoiceConnection {
             .collect()
     }
 
-    /// Leave the call.
+    /// Leave the call. Returns once members have been told, so a bot that
+    /// leaves and then exits does not take the message down with it, or after
+    /// five seconds at most: the message is not worth hanging a leave on.
     pub async fn leave(&self) -> Result<()> {
         self.stop();
-        self.room.close().await.map_err(|e| BotError::new(format!("leaving: {e}")))
+        let result = self.room.close().await.map_err(|e| BotError::new(format!("leaving: {e}")));
+        let told = async {
+            self.closed().await;
+            if let Some(said) = &self.said_left {
+                let _ = said.clone().wait_for(|s| *s).await;
+            }
+        };
+        let _ = tokio::time::timeout(LEAVE_TELL_WAIT, told).await;
+        result
     }
 }
 
@@ -337,7 +356,22 @@ pub async fn join_voice(session: &BotSession, channel_id: &str, options: &VoiceO
         Some(url) if !url.is_empty() => url.to_string(),
         _ => livekit_url(session).await?,
     };
-    connect(channel_id, &url, token, &key).await
+    let mut voice = connect(channel_id, &url, token, &key).await?;
+
+    // Members are told the bot arrived, and told again when it is gone for
+    // any reason, so nobody draws it in a call it has left.
+    let (said_tx, said_left) = watch::channel(false);
+    voice.said_left = Some(said_left);
+    let mut closed = voice.closed.clone();
+    let session = session.clone();
+    let channel = channel_id.to_string();
+    tokio::spawn(async move {
+        announce_place(&session, |p| p.enter(&channel)).await;
+        let _ = closed.wait_for(|c| *c).await;
+        announce_place(&session, |p| p.leave(&channel)).await;
+        said_tx.send_replace(true);
+    });
+    Ok(voice)
 }
 
 /// Join with a token and the bot's media key, encrypting in slot 0.
@@ -363,6 +397,7 @@ pub(crate) async fn connect(channel_id: &str, url: &str, token: &str, key: &[u8]
         playing,
         source: std::sync::Mutex::new(None),
         closed,
+        said_left: None,
     })
 }
 

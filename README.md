@@ -10,11 +10,9 @@ reads a channel if an admin hands it that channel's key.
 
 ## Quick start
 
-Not on crates.io yet (see *Voice* for why). Depend on it from git:
-
 ```toml
 [dependencies]
-rift-bot = { git = "https://github.com/awais-amjed/rift-bot-sdk-rust" }
+rift-bot = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 ```
 
@@ -82,7 +80,7 @@ explains each of these; the calls here have the same names in snake case.
 Behind the `voice` feature, so a text bot never builds a WebRTC stack:
 
 ```toml
-rift-bot = { git = "https://github.com/awais-amjed/rift-bot-sdk-rust", features = ["voice"] }
+rift-bot = { version = "0.1", features = ["voice"] }
 ```
 
 The first build downloads LiveKit's prebuilt WebRTC library. On Linux the
@@ -96,9 +94,11 @@ stereo.
 Calls are stereo because this crate builds on our fork of LiveKit's Rust SDK
 with one change: the published SDK never tells the server a two-channel track
 is stereo, so every bot built on it (LiveKit's Node and Python SDKs included)
-is mono. [`RIFT.md`](https://github.com/awais-amjed/livekit-rust-sdks/blob/rift/RIFT.md)
-on the fork's `rift` branch has the details. crates.io refuses a crate with a
-git dependency, so this crate goes there once LiveKit ships the fix.
+is mono. The fork is on crates.io as
+[`joinrift-livekit`](https://crates.io/crates/joinrift-livekit), and
+[`RIFT.md`](https://github.com/awais-amjed/livekit-rust-sdks/blob/rift/RIFT.md)
+on its `rift` branch has the details. This crate moves back to LiveKit's own
+once LiveKit ships the fix.
 
 Listeners hear the stereo on Rift 1.5.0-beta.1 or newer; an older Rift plays it in
 mono.

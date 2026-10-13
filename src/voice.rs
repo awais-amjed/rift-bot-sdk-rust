@@ -14,8 +14,8 @@
 //! cannot reach `channelKey` (BOTS.md §2, §6b). A member's client seals it; the
 //! bot never sees the channel key.
 //!
-//! The media is LiveKit's Rust SDK, our own copy of it (`third_party/livekit`),
-//! which says a two-channel track is stereo. Without that, every bot is mono.
+//! The media is LiveKit's Rust SDK, from our fork of it (`Cargo.toml`), which
+//! says a two-channel track is stereo. Without that, every bot is mono.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

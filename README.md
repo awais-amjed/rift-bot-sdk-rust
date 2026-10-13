@@ -93,12 +93,12 @@ so a Docker build takes clang from [apt.llvm.org](https://apt.llvm.org). A bot p
 `ffmpeg` child's stdout is the usual source. `Quality::Music` sends 128 kbps
 stereo.
 
-Calls are stereo because this crate carries its own copy of LiveKit's Rust SDK
+Calls are stereo because this crate builds on our fork of LiveKit's Rust SDK
 with one change: the published SDK never tells the server a two-channel track
 is stereo, so every bot built on it (LiveKit's Node and Python SDKs included)
-is mono. [`third_party/livekit/RIFT_PATCHES.md`](third_party/livekit/RIFT_PATCHES.md)
-has the details. crates.io refuses a crate whose dependency it cannot fetch,
-so this crate goes there once LiveKit ships the fix.
+is mono. [`RIFT.md`](https://github.com/awais-amjed/livekit-rust-sdks/blob/rift/RIFT.md)
+on the fork's `rift` branch has the details. crates.io refuses a crate with a
+git dependency, so this crate goes there once LiveKit ships the fix.
 
 Listeners hear the stereo on Rift 1.5.0-beta.1 or newer; an older Rift plays it in
 mono.

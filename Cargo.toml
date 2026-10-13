@@ -8,38 +8,19 @@ repository = "https://github.com/awais-amjed/rift-bot-sdk-rust"
 homepage = "https://joinrift.app"
 keywords = ["rift", "bot", "chat", "voice"]
 categories = ["api-bindings"]
-exclude = ["third_party"]
 
 [features]
 # A call's media, through LiveKit's Rust SDK and the WebRTC library it
 # downloads. Off by default: a bot that answers `/echo` should not build a
 # WebRTC stack it never loads, and most bots are that bot.
-voice = [
-    "dep:livekit",
-    "dep:libwebrtc",
-    "dep:webrtc-sys",
-    "dep:livekit-common",
-    "dep:livekit-data-stream",
-    "dep:livekit-protocol",
-    "dep:livekit-rpc",
-    "dep:livekit-signaling",
-]
+voice = ["dep:livekit"]
 
 [dependencies]
-# Our copy, which says a two-channel track is stereo (third_party/livekit/
-# RIFT_PATCHES.md). A path, not [patch.crates-io], which would not reach the
-# bots that depend on this crate.
-livekit = { path = "third_party/livekit", optional = true, features = ["rustls-tls-native-roots"] }
-# Held at the versions livekit 0.9.1 was published against. Its manifest asks
-# for them with `^`, and later patch releases of these do not build with it:
-# without the pins, a bot's first build fails inside third_party.
-libwebrtc = { version = "=0.3.48", optional = true }
-webrtc-sys = { version = "=0.3.45", optional = true }
-livekit-common = { version = "=0.1.3", optional = true }
-livekit-data-stream = { version = "=0.1.5", optional = true }
-livekit-protocol = { version = "=0.7.13", optional = true }
-livekit-rpc = { version = "=0.1.1", optional = true }
-livekit-signaling = { version = "=0.1.2", optional = true }
+# Our fork's `rift` branch, which says a two-channel track is stereo (RIFT.md
+# there). A dependency, not [patch.crates-io], which would not reach the bots
+# that depend on this crate. LiveKit's other crates come from the same commit,
+# so they always match.
+livekit = { git = "https://github.com/awais-amjed/livekit-rust-sdks", rev = "8aa5c96d862b2c329d003f6e86016429afdf1e1f", optional = true, features = ["rustls-tls-native-roots"] }
 aes-gcm = "0.11.1"
 base64 = "0.23.1"
 ed25519-dalek = "3.0.0"
@@ -59,7 +40,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 [dev-dependencies]
 base64 = "0.23.1"
-livekit-api = { version = "=0.7.1", default-features = false, features = ["access-token"] }
+livekit-api = { git = "https://github.com/awais-amjed/livekit-rust-sdks", rev = "8aa5c96d862b2c329d003f6e86016429afdf1e1f", default-features = false, features = ["access-token"] }
 serde_json = "1.0.154"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal", "process"] }
 

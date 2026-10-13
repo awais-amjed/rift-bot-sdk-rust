@@ -11,7 +11,7 @@
 //! What it proves: the bot's two channels reach a listener as two, through
 //! the call's encryption, in the slot members read a bot's key from. A tone
 //! fed into only the left ear has to come out of only the left ear. Without
-//! our copy of LiveKit (`third_party/livekit`) it comes out of both.
+//! our fork of LiveKit (`Cargo.toml`) it comes out of both.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

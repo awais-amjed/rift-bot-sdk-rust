@@ -19,6 +19,11 @@ mod session;
 pub mod suggest;
 #[cfg(test)]
 mod test_server;
+mod tls;
+#[cfg(feature = "voice")]
+pub mod voice;
+#[cfg(all(test, feature = "voice"))]
+mod voice_live_test;
 
 pub use bot::{Bot, BotMessage, DEFAULT_POLL, HandlerOutput, PanelOptions};
 pub use channel::{ChannelMessage, ChannelReader};

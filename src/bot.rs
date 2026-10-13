@@ -705,6 +705,21 @@ impl Bot {
         Ok(rows.into_iter().map(|r| (r.channel_id, r.summoned_by)).collect())
     }
 
+    /// Join a voice channel, and get something to play through.
+    ///
+    /// **The bot publishes; it does not hear**, unless an admin granted it
+    /// listening on this channel: check
+    /// [`can_hear`](crate::voice::VoiceConnection::can_hear) rather than
+    /// wondering why nothing arrives.
+    #[cfg(feature = "voice")]
+    pub async fn join_voice(
+        &self,
+        channel_id: &str,
+        options: &crate::voice::VoiceOptions,
+    ) -> Result<crate::voice::VoiceConnection> {
+        crate::voice::join_voice(&self.inner.session, channel_id, options).await
+    }
+
     /// Leave, and give back the welcome. Dropping the summon drops the media
     /// key with it; a row left behind is a bot that looks present and is not.
     pub async fn dismiss_self(&self, channel_id: &str) -> Result<()> {

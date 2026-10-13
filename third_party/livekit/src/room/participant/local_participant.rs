@@ -398,6 +398,15 @@ impl LocalParticipant {
             req.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
         }
 
+        // RIFT PATCH: say a source with two channels is stereo. The server answers
+        // with `stereo=1` only for a track that says so, and without it Opus
+        // encodes every track in mono (livekit/rust-sdks#1018).
+        if let LocalTrack::Audio(audio_track) = &track {
+            if audio_track.rtc_source().num_channels() >= 2 {
+                req.audio_features.push(proto::AudioTrackFeature::TfStereo as i32);
+            }
+        }
+
         req.packet_trailer_features =
             options.frame_metadata_features.to_proto().into_iter().map(|f| f as i32).collect();
 

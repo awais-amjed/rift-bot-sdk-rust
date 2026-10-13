@@ -84,6 +84,7 @@ impl std::fmt::Debug for BotSession {
 }
 
 fn http_client() -> reqwest::Client {
+    crate::tls::ensure_provider();
     reqwest::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .build()
@@ -127,6 +128,7 @@ impl BotSession {
         auth.user_id = Some(user_id.into());
         drop(auth);
         let mut inner = Arc::try_unwrap(session.inner).ok().unwrap();
+        crate::tls::ensure_provider();
         inner.http = reqwest::Client::builder().no_proxy().timeout(REQUEST_TIMEOUT).build().unwrap();
         Self { inner: Arc::new(inner) }
     }

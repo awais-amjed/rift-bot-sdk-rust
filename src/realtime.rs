@@ -188,6 +188,7 @@ pub struct RealtimeListener {
 impl RealtimeListener {
     /// Start listening. What is heard comes out of the returned receiver.
     pub fn start(options: RealtimeOptions) -> (Self, mpsc::UnboundedReceiver<Heard>) {
+        crate::tls::ensure_provider();
         let (out, heard) = mpsc::unbounded_channel();
         let (token, token_rx) = watch::channel(options.token.clone());
         let connected = Arc::new(AtomicBool::new(false));

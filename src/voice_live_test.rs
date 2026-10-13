@@ -54,8 +54,8 @@ impl Server {
             .with_grants(VideoGrants {
                 room_join: true,
                 room: room.to_string(),
-                can_publish: true,
-                can_subscribe: subscribe,
+                can_publish: Some(true),
+                can_subscribe: Some(subscribe),
                 ..Default::default()
             })
             .to_jwt()
@@ -84,9 +84,9 @@ fn tones() -> Vec<u8> {
 
 fn levels(data: &[i16]) -> (f64, f64) {
     let (mut l, mut r) = (0.0, 0.0);
-    for pair in data.chunks_exact(2) {
-        l += (pair[0] as f64).powi(2);
-        r += (pair[1] as f64).powi(2);
+    for &[left, right] in data.as_chunks::<2>().0 {
+        l += (left as f64).powi(2);
+        r += (right as f64).powi(2);
     }
     let n = (data.len() / 2).max(1) as f64;
     ((l / n).sqrt(), (r / n).sqrt())

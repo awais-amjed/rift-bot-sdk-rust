@@ -477,8 +477,10 @@ impl FrameCutter {
         self.carry.extend_from_slice(chunk);
         let whole = self.carry.len() / FRAME_BYTES * FRAME_BYTES;
         let frames = self.carry[..whole]
-            .chunks_exact(FRAME_BYTES)
-            .map(|frame| frame.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])).collect())
+            .as_chunks::<FRAME_BYTES>()
+            .0
+            .iter()
+            .map(|frame| frame.as_chunks::<2>().0.iter().map(|&s| i16::from_le_bytes(s)).collect())
             .collect();
         self.carry.drain(..whole);
         frames

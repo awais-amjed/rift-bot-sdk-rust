@@ -74,7 +74,7 @@ cargo run --features voice --example music_bot -- bot.json bot.seed
 - **Reading a channel**: only one an admin has granted it
 - **Voice**: play into a call, in stereo; hear one only if an admin allows it
 
-The [TypeScript SDK's guide](https://github.com/awais-amjed/rift-bot-sdk/blob/dev/docs/GUIDE.md)
+The [TypeScript SDK's guide](https://github.com/awais-amjed/rift-bot-sdk-node/blob/dev/docs/GUIDE.md)
 explains each of these; the calls here have the same names in snake case.
 
 ## Voice
@@ -136,7 +136,7 @@ LIVEKIT_URL=ws://localhost:7880 LIVEKIT_API_KEY=… LIVEKIT_API_SECRET=… \
 |---|---|
 | [`rift`](https://github.com/awais-amjed/rift) | the app: Flutter client for desktop, mobile and web |
 | [`rift-self-host`](https://github.com/awais-amjed/rift-self-host) | a server anyone can run, where a bot lives |
-| [`rift-bot-sdk`](https://github.com/awais-amjed/rift-bot-sdk) | the TypeScript SDK for building bots |
+| [`rift-bot-sdk-node`](https://github.com/awais-amjed/rift-bot-sdk-node) | the TypeScript SDK for building bots |
 | **`rift-bot-sdk-rust`** | this: the Rust SDK for building bots |
 
 ## License

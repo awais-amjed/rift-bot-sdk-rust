@@ -238,11 +238,10 @@ async fn run(
     loop {
         let result = session(&options, &url, &mut token, &out, &connected, &mut attempt).await;
         connected.store(false, Ordering::Relaxed);
-        if let Err(error) = result {
-            if out.send(Heard::Error(error)).is_err() {
+        if let Err(error) = result
+            && out.send(Heard::Error(error)).is_err() {
                 return; // Nobody is listening any more.
             }
-        }
         if out.is_closed() {
             return;
         }

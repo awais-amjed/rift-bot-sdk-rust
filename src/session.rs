@@ -117,6 +117,20 @@ impl BotSession {
         })
     }
 
+    /// A session already signed in as `user_id`, against a test server, with
+    /// no proxy between.
+    #[cfg(test)]
+    pub(crate) fn for_test(url: &str, user_id: &str) -> Self {
+        let session = Self::new(url, "anon", "server-1", &[5; 32]).unwrap();
+        let mut auth = session.inner.auth.write().unwrap();
+        auth.token = Some("token".into());
+        auth.user_id = Some(user_id.into());
+        drop(auth);
+        let mut inner = Arc::try_unwrap(session.inner).ok().unwrap();
+        inner.http = reqwest::Client::builder().no_proxy().timeout(REQUEST_TIMEOUT).build().unwrap();
+        Self { inner: Arc::new(inner) }
+    }
+
     pub fn from_config(config: &SessionConfig, seed: &[u8; 32]) -> Result<Self> {
         Self::new(&config.url, &config.anon_key, &config.server_id, seed)
     }

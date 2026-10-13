@@ -4,12 +4,14 @@
 //! `tests/wire_vectors.json` holds them as numbers.
 
 pub mod body;
+mod bot;
 pub mod channel;
 pub mod crypto;
 pub mod dm;
 mod error;
 pub mod image;
 pub mod invite;
+pub mod panel;
 pub mod realtime;
 pub mod sealed;
 mod senders;
@@ -18,6 +20,7 @@ pub mod suggest;
 #[cfg(test)]
 mod test_server;
 
+pub use bot::{Bot, BotMessage, DEFAULT_POLL, HandlerOutput, PanelOptions};
 pub use channel::{ChannelMessage, ChannelReader};
 pub use dm::{DirectMessage, DirectMessages};
 pub use error::{BotError, Result};

@@ -73,7 +73,7 @@ fn tones() -> Vec<u8> {
     let rate = SAMPLE_RATE as usize;
     let mut out = Vec::with_capacity(rate * PLAY_MS / 1000 * 4);
     for i in 0..rate * PLAY_MS / 1000 {
-        let left = (i * 1000 / rate / SIDE_MS) % 2 == 0;
+        let left = (i * 1000 / rate / SIDE_MS).is_multiple_of(2);
         let v = ((i as f64 / rate as f64 * 1_000.0 * std::f64::consts::TAU).sin() * 8_000.0) as i16;
         let (l, r) = if left { (v, 0) } else { (0, v) };
         out.extend(l.to_le_bytes());

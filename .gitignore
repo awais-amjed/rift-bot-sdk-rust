@@ -1,0 +1,6 @@
+/target
+
+# A bot's seed is its whole identity. Whoever holds one *is* that bot, so a
+# stray seed next to an example is a bot somebody else can be.
+*.seed
+.idea/

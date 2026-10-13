@@ -159,29 +159,13 @@ impl VoiceConnection {
         if self.playing.swap(true, Ordering::SeqCst) {
             return Err(BotError::new("already playing on this connection"));
         }
-        let result = self.publish_and_feed(pcm, quality).await;
+        let result = self.feed(pcm, quality).await;
         self.playing.store(false, Ordering::SeqCst);
-        *self.source.lock().unwrap() = None;
         result
     }
 
-    async fn publish_and_feed(&self, mut pcm: impl AsyncRead + Unpin, quality: Quality) -> Result<()> {
-        let source = NativeAudioSource::new(AudioSourceOptions::default(), SAMPLE_RATE, CHANNELS, QUEUE_MS);
-        *self.source.lock().unwrap() = Some(source.clone());
-        let track = LocalAudioTrack::create_audio_track("audio", RtcAudioSource::Native(source.clone()));
-        let mut options = TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() };
-        if quality == Quality::Music {
-            options.audio_encoding = Some(audio::MUSIC_HIGH_QUALITY_STEREO.encoding);
-            options.dtx = false;
-            options.red = false;
-        }
-        let publication = self
-            .room
-            .local_participant()
-            .publish_track(LocalTrack::Audio(track), options)
-            .await
-            .map_err(|e| BotError::new(format!("could not publish: {e}")))?;
-
+    async fn feed(&self, mut pcm: impl AsyncRead + Unpin, quality: Quality) -> Result<()> {
+        let output = self.publish(quality).await?;
         let mut frames = FrameCutter::default();
         let mut chunk = vec![0u8; 64 * 1024];
         let fed = loop {
@@ -197,29 +181,49 @@ impl VoiceConnection {
                 if !self.playing() {
                     break;
                 }
-                let frame = AudioFrame {
-                    data: samples.as_slice().into(),
-                    sample_rate: SAMPLE_RATE,
-                    num_channels: CHANNELS,
-                    samples_per_channel: FRAME_SAMPLES as u32,
-                };
-                if let Err(e) = source.capture_frame(&frame).await {
-                    log::warn!("voice: LiveKit refused a frame: {e}");
-                }
+                output.write(&samples).await;
             }
         };
         if self.playing() && self.connected() {
-            // The end of the sound, not a stop: let the queue play out.
-            tokio::time::sleep(Duration::from_millis(QUEUE_MS as u64)).await;
-        }
-        if self.connected() {
-            let _ = self.room.local_participant().unpublish_track(&publication.sid()).await;
+            output.finish().await;
+        } else {
+            output.close().await;
         }
         fed
     }
 
+    /// Publish a track to write sound into yourself, for a bot that keeps one
+    /// track for a whole visit and decides frame by frame what goes in it: a
+    /// queue, a pause, a volume. [`play`](Self::play) is this with a stream.
+    ///
+    /// Publishing is what members see as the bot starting to speak, so one
+    /// track per visit rather than one per song keeps the bot from dropping
+    /// out of the call between songs.
+    pub async fn publish(&self, quality: Quality) -> Result<AudioOutput<'_>> {
+        if !self.connected() {
+            return Err(BotError::new("this connection has left its room"));
+        }
+        let source = NativeAudioSource::new(AudioSourceOptions::default(), SAMPLE_RATE, CHANNELS, QUEUE_MS);
+        let track = LocalAudioTrack::create_audio_track("audio", RtcAudioSource::Native(source.clone()));
+        let mut options = TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() };
+        if quality == Quality::Music {
+            options.audio_encoding = Some(audio::MUSIC_HIGH_QUALITY_STEREO.encoding);
+            options.dtx = false;
+            options.red = false;
+        }
+        let publication = self
+            .room
+            .local_participant()
+            .publish_track(LocalTrack::Audio(track), options)
+            .await
+            .map_err(|e| BotError::new(format!("could not publish: {e}")))?;
+        *self.source.lock().unwrap() = Some(source.clone());
+        Ok(AudioOutput { voice: self, source, sid: publication.sid() })
+    }
+
     /// Stop the current [`play`](Self::play) now, queued sound included. The
-    /// stream is left to whoever owns it.
+    /// stream is left to whoever owns it. An [`AudioOutput`]'s queue is
+    /// emptied too.
     pub fn stop(&self) {
         self.playing.store(false, Ordering::SeqCst);
         if let Some(source) = self.source.lock().unwrap().as_ref() {
@@ -256,6 +260,54 @@ impl VoiceConnection {
     pub async fn leave(&self) -> Result<()> {
         self.stop();
         self.room.close().await.map_err(|e| BotError::new(format!("leaving: {e}")))
+    }
+}
+
+/// A published track a bot writes sound into, from
+/// [`VoiceConnection::publish`]. Take it down with [`finish`](Self::finish)
+/// or [`close`](Self::close); dropped, it stays published until the bot
+/// leaves.
+pub struct AudioOutput<'a> {
+    voice: &'a VoiceConnection,
+    source: NativeAudioSource,
+    sid: TrackSid,
+}
+
+impl AudioOutput<'_> {
+    /// Queue interleaved 48 kHz stereo samples. Waits while LiveKit's queue is
+    /// full, which is what paces a writer that has the whole song at once.
+    /// A frame LiveKit refuses is logged and dropped: one lost 10 ms is a
+    /// click, and stopping the song for it would be worse.
+    pub async fn write(&self, samples: &[i16]) {
+        let frame = AudioFrame {
+            data: samples.into(),
+            sample_rate: SAMPLE_RATE,
+            num_channels: CHANNELS,
+            samples_per_channel: (samples.len() / CHANNELS as usize) as u32,
+        };
+        if let Err(e) = self.source.capture_frame(&frame).await {
+            log::warn!("voice: LiveKit refused a frame: {e}");
+        }
+    }
+
+    /// Drop what is queued and not yet sent, so a skip or a pause is heard at
+    /// once rather than half a second later.
+    pub fn clear(&self) {
+        self.source.clear_buffer();
+    }
+
+    /// Let what is queued play out, then take the track down.
+    pub async fn finish(self) {
+        tokio::time::sleep(Duration::from_millis(QUEUE_MS as u64)).await;
+        self.close().await;
+    }
+
+    /// Take the track down now.
+    pub async fn close(self) {
+        self.voice.source.lock().unwrap().take();
+        if self.voice.connected() {
+            let _ = self.voice.room.local_participant().unpublish_track(&self.sid).await;
+        }
     }
 }
 

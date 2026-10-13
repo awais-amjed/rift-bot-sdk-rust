@@ -85,7 +85,10 @@ Behind the `voice` feature, so a text bot never builds a WebRTC stack:
 rift-bot = { git = "https://github.com/awais-amjed/rift-bot-sdk-rust", features = ["voice"] }
 ```
 
-The first build downloads LiveKit's prebuilt WebRTC library. A bot plays
+The first build downloads LiveKit's prebuilt WebRTC library. On Linux the
+glue around it needs **clang 21 or newer** (set `CC` and `CXX` to it) and
+GLib's headers (`libglib2.0-dev` on Debian); Debian's own clang is too old,
+so a Docker build takes clang from [apt.llvm.org](https://apt.llvm.org). A bot plays
 16-bit PCM at 48 kHz, two channels interleaved, from anything readable; an
 `ffmpeg` child's stdout is the usual source. `Quality::Music` sends 128 kbps
 stereo.

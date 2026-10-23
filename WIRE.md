@@ -304,6 +304,54 @@ before the person has chosen to talk to it.
 
 ---
 
+## 8. Attachment files
+
+A file sent with a message is an object in the server's attachment storage,
+and everything needed to read it travels in the message's body, under `att`
+(the body itself is not frozen here yet). The server holds the bytes and
+nothing that opens them. Each entry:
+
+| Key | Holds |
+|---|---|
+| `id`, `kind`, `name`, `mime` | the file's id in the message, `image` / `audio` / `file`, its name and type |
+| `size` | the **plaintext** length in bytes |
+| `path` | the object in the server's attachment bucket; which folder a member may write is the server's rule (`API.md`), not the format's |
+| `key`, `nonce` | base64: a 32-byte key, random per file, and a 12-byte nonce — or a 7-byte prefix when `chunk` is set |
+| `chunk` | present only when the file is sealed a chunk at a time: the plaintext bytes per chunk |
+| `plain`, `sha256` | present only when the file was sent unencrypted: `true`, and the base64 SHA-256 of its bytes |
+| `w`, `h`, `dur` | optional: a picture's size, a recording's length in ms |
+
+**In one piece** (no `chunk`): the object is `AES-256-GCM(file, key, nonce)`
+with no associated data and the 16-byte tag after the ciphertext.
+`attachment` in the vectors pins it.
+
+**A chunk at a time** (`chunk` set), STREAM from the `aead-stream` crate. The
+file is cut into `chunk`-byte pieces, the last shorter — an empty file is one
+empty chunk, so there is always a last one — and piece *n* is sealed on its own:
+
+```
+nonce(n) = prefix ‖ BE32(n) ‖ (0x01 if n is the last chunk, else 0x00)   // 12 bytes
+chunk(n) = AES-256-GCM(piece n, key, nonce(n))                           // tag appended, no AAD
+object   = chunk(0) ‖ chunk(1) ‖ … ‖ chunk(last)
+```
+
+Nothing about the layout is written into the object. Everything follows from
+`size` and `chunk`: there are `max(1, ceil(size / chunk))` chunks, chunk *n*
+starts at `(chunk + 16) × n`, and the object is `size + 16 × count` bytes. A
+reader refuses a `chunk` outside 4 KiB to 16 MiB, since it holds a whole chunk
+before it can open one, and a file whose chunks run out before the last.
+Because the position and the last flag are in the nonce, a server that reorders,
+drops or cuts off chunks makes a tag fail. Rift seals 1 MiB chunks.
+`chunked_attachment` pins three 4 KiB chunks by the SHA-256 of the whole object,
+with each chunk's nonce and the short last chunk in full.
+
+**Unencrypted** (`plain: true`): the object is the file as it is, and a reader
+shows it only if its SHA-256 is `sha256`. `key` and `nonce` are still written,
+as empty strings, so a client from before this fails to open the file rather
+than losing the message.
+
+---
+
 ## Out of scope
 
 The channel keyring itself, the links that chain its versions

@@ -43,6 +43,29 @@
     "bot_plaintext": "chatmsg:v1:aaaa1111-0000-4000-8000-000000000001:0::/echo hello",
     "dm_context": "dm:00000000-0000-4000-8000-000000000001:ffffffff-0000-4000-8000-000000000002"
   },
+  "attachment": {
+    "note": "AES-256-GCM(plain_utf8, key, nonce), tag appended, no AAD",
+    "key_base64": "EBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8=",
+    "nonce_base64": "YGFiY2RlZmdoaWpr",
+    "plain_utf8": "Rift attachment, sealed in one piece.",
+    "sealed_base64": "9CQ1Eu7kwVgBYQ7x3BdoDqNhYZwHomi2OT1DrTaOlNbtit+eH5S1H3cW6D7OFXOqtFkGudc=",
+    "sha256_base64": "55/ycs072+h/wbsqLp4tvTizyG0msFuu5EBghbEvmQM="
+  },
+  "chunked_attachment": {
+    "note": "plaintext byte i = i % 251; chunk n sealed under key and prefix ‖ BE32(n) ‖ (1 if last else 0); blob = chunks in order",
+    "key_base64": "EBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8=",
+    "prefix_base64": "wMHCw8TFxg==",
+    "chunk": 4096,
+    "size": 8197,
+    "sealed_size": 8245,
+    "chunk_nonces_base64": [
+      "wMHCw8TFxgAAAAAA",
+      "wMHCw8TFxgAAAAEA",
+      "wMHCw8TFxgAAAAIB"
+    ],
+    "last_chunk_sealed_base64": "zwAyvMNEiN3gi3TbdUuVdttOw9RH",
+    "sealed_sha256_base64": "Y/YWeY+uAHp/w/CfKtssC6q7WTL6WQhhk5pfjMZNhM0="
+  },
   "signature": {
     "over": "signed_payload.channel, by server_identity",
     "base64": "7jjW4yf9k72tYh9DuWnDs9gVl6bFNig450dNEt9pxQhtCqGlT5bYRTQ9pBHj6BICEKXUgTVZROVQLIAOx4UPAw=="

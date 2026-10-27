@@ -46,9 +46,17 @@ pub fn image_info(b: &[u8]) -> Option<ImageInfo> {
     None
 }
 
-fn sized(extension: &'static str, content_type: &'static str, size: Option<(u32, u32)>) -> ImageInfo {
+fn sized(
+    extension: &'static str,
+    content_type: &'static str,
+    size: Option<(u32, u32)>,
+) -> ImageInfo {
     let ok = |n: u32| (1..=16384).contains(&n);
-    ImageInfo { extension, content_type, size: size.filter(|&(w, h)| ok(w) && ok(h)) }
+    ImageInfo {
+        extension,
+        content_type,
+        size: size.filter(|&(w, h)| ok(w) && ok(h)),
+    }
 }
 
 /// The first start-of-frame marker's size. Every marker before it is skipped
@@ -87,7 +95,11 @@ mod tests {
     use super::*;
 
     fn fixture(name: &str) -> Vec<u8> {
-        std::fs::read(format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+        std::fs::read(format!(
+            "{}/tests/fixtures/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
     }
 
     /// Every way each format can say how big it is, from real files ffmpeg
@@ -110,7 +122,10 @@ mod tests {
 
     #[test]
     fn anything_else_is_not_a_picture_a_panel_can_show() {
-        assert_eq!(image_info(br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#), None);
+        assert_eq!(
+            image_info(br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#),
+            None
+        );
         assert_eq!(image_info(&[]), None);
     }
 

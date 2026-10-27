@@ -7,9 +7,14 @@ const BODY_TAG: &str = "rift.msg";
 /// on content it does not recognise.
 pub fn decode_body(plaintext: &str) -> String {
     if let Ok(serde_json::Value::Object(map)) = serde_json::from_str(plaintext)
-        && map.get("t").and_then(|t| t.as_str()) == Some(BODY_TAG) {
-            return map.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
-        }
+        && map.get("t").and_then(|t| t.as_str()) == Some(BODY_TAG)
+    {
+        return map
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+    }
     plaintext.to_string()
 }
 

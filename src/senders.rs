@@ -25,16 +25,29 @@ struct Row {
 
 impl SenderKeys {
     pub(crate) fn new(session: BotSession) -> Self {
-        Self { session, keys: Mutex::new(HashMap::new()) }
+        Self {
+            session,
+            keys: Mutex::new(HashMap::new()),
+        }
     }
 
     pub(crate) async fn public_key_for(&self, user_id: &str) -> Result<Option<Vec<u8>>> {
         if let Some(cached) = self.keys.lock().unwrap().get(user_id) {
             return Ok(cached.clone());
         }
-        let rows: Vec<Row> = self.session.select(&format!("users?select=public_key&id=eq.{user_id}")).await?;
-        let key = rows.into_iter().next().and_then(|r| r.public_key).and_then(|k| unb64(&k));
-        self.keys.lock().unwrap().insert(user_id.to_string(), key.clone());
+        let rows: Vec<Row> = self
+            .session
+            .select(&format!("users?select=public_key&id=eq.{user_id}"))
+            .await?;
+        let key = rows
+            .into_iter()
+            .next()
+            .and_then(|r| r.public_key)
+            .and_then(|k| unb64(&k));
+        self.keys
+            .lock()
+            .unwrap()
+            .insert(user_id.to_string(), key.clone());
         Ok(key)
     }
 }

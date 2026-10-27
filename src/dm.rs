@@ -71,7 +71,11 @@ pub struct DirectMessages {
 
 impl DirectMessages {
     pub fn new(session: BotSession) -> Self {
-        Self { senders: SenderKeys::new(session.clone()), session, keys: Mutex::new(HashMap::new()) }
+        Self {
+            senders: SenderKeys::new(session.clone()),
+            session,
+            keys: Mutex::new(HashMap::new()),
+        }
     }
 
     /// Everything sent to this bot after `after_id`, oldest first. A row that
@@ -99,7 +103,9 @@ impl DirectMessages {
         let me = self.session.require_user_id()?;
         let rows: Vec<IdRow> = self
             .session
-            .select(&format!("dm_messages?select=id&recipient_id=eq.{me}&order=id.desc&limit=1"))
+            .select(&format!(
+                "dm_messages?select=id&recipient_id=eq.{me}&order=id.desc&limit=1"
+            ))
             .await?;
         Ok(rows.first().map_or(0, |r| r.id))
     }
@@ -137,8 +143,12 @@ impl DirectMessages {
     /// on it is the whole attack. A body that will not decrypt is one sealed
     /// to a key this bot does not have: a message it was never part of.
     async fn open_row(&self, row: DmRow) -> Result<Option<DirectMessage>> {
-        let Some(signature) = row.signature.as_deref() else { return Ok(None) };
-        let Some(sender_key) = self.senders.public_key_for(&row.sender_id).await? else { return Ok(None) };
+        let Some(signature) = row.signature.as_deref() else {
+            return Ok(None);
+        };
+        let Some(sender_key) = self.senders.public_key_for(&row.sender_id).await? else {
+            return Ok(None);
+        };
         let context = conversation_context(&row.sender_id, &row.recipient_id);
         let payload = signed_payload(&context, row.key_version, &row.nonce, &row.ciphertext);
         if !verify_signature(&payload, signature, &sender_key) {
@@ -148,12 +158,14 @@ impl DirectMessages {
             Ok(key) => key,
             Err(_) => return Ok(None),
         };
-        Ok(open(&row.ciphertext, &row.nonce, &key).map(|plain| DirectMessage {
-            id: row.id,
-            peer_id: row.sender_id,
-            text: decode_body(&plain),
-            sent_at: row.created_at,
-        }))
+        Ok(
+            open(&row.ciphertext, &row.nonce, &key).map(|plain| DirectMessage {
+                id: row.id,
+                peer_id: row.sender_id,
+                text: decode_body(&plain),
+                sent_at: row.created_at,
+            }),
+        )
     }
 
     async fn key_for(&self, peer_id: &str) -> Result<[u8; 32]> {
@@ -164,9 +176,15 @@ impl DirectMessages {
             .session
             .select(&format!("users?select=chat_public_key&id=eq.{peer_id}"))
             .await?;
-        let theirs = rows.into_iter().next().and_then(|r| r.chat_public_key).ok_or_else(|| {
-            BotError::new(format!("{peer_id} has published no chat key, so there is no conversation to open"))
-        })?;
+        let theirs = rows
+            .into_iter()
+            .next()
+            .and_then(|r| r.chat_public_key)
+            .ok_or_else(|| {
+                BotError::new(format!(
+                    "{peer_id} has published no chat key, so there is no conversation to open"
+                ))
+            })?;
         let key = derive_dm_key(self.session.chat_identity(), &theirs)
             .ok_or_else(|| BotError::new(format!("{peer_id}'s chat key is not an X25519 key")))?;
         self.keys.lock().unwrap().insert(peer_id.to_string(), key);
@@ -222,20 +240,43 @@ mod tests {
         let key = derive_dm_key(&peer_chat, &b64(&session.chat_identity().public_key)).unwrap();
         let context = conversation_context(PEER, BOT);
         let base = json!({ "id": 3, "sender_id": PEER, "recipient_id": BOT, "created_at": "x" });
-        rows.lock().unwrap().push(merged(base.clone(), sealed(&context, &encode_body("hi bot"), &key, 1, &peer_sign)));
+        rows.lock().unwrap().push(merged(
+            base.clone(),
+            sealed(&context, &encode_body("hi bot"), &key, 1, &peer_sign),
+        ));
         // A forged one beside it is left out.
-        let forged = merged(json!({ "id": 4 }), sealed(&context, &encode_body("lies"), &key, 1, &member()));
+        let forged = merged(
+            json!({ "id": 4 }),
+            sealed(&context, &encode_body("lies"), &key, 1, &member()),
+        );
         rows.lock().unwrap().push(merged(base, forged));
 
         let got = dms.since(0).await.unwrap();
         assert_eq!(got.len(), 1);
-        assert_eq!((got[0].text.as_str(), got[0].peer_id.as_str()), ("hi bot", PEER));
+        assert_eq!(
+            (got[0].text.as_str(), got[0].peer_id.as_str()),
+            ("hi bot", PEER)
+        );
 
         dms.reply(&got[0], "hello you").await.unwrap();
         let row = inserted.lock().unwrap()[0].clone();
-        let opened = open(row["ciphertext"].as_str().unwrap(), row["nonce"].as_str().unwrap(), &key).unwrap();
+        let opened = open(
+            row["ciphertext"].as_str().unwrap(),
+            row["nonce"].as_str().unwrap(),
+            &key,
+        )
+        .unwrap();
         assert_eq!(decode_body(&opened), "hello you");
-        let payload = signed_payload(&context, 1, row["nonce"].as_str().unwrap(), row["ciphertext"].as_str().unwrap());
-        assert!(verify_signature(&payload, row["signature"].as_str().unwrap(), &session.identity().public_key));
+        let payload = signed_payload(
+            &context,
+            1,
+            row["nonce"].as_str().unwrap(),
+            row["ciphertext"].as_str().unwrap(),
+        );
+        assert!(verify_signature(
+            &payload,
+            row["signature"].as_str().unwrap(),
+            &session.identity().public_key
+        ));
     }
 }

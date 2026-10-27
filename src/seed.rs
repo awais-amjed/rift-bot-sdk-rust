@@ -44,7 +44,10 @@ mod tests {
 
     #[test]
     fn a_seed_round_trips_and_is_never_overwritten() {
-        let dir = std::env::temp_dir().join(format!("rift-seed-{}", crate::crypto::b64(&random_bytes::<6>()).replace('/', "_")));
+        let dir = std::env::temp_dir().join(format!(
+            "rift-seed-{}",
+            crate::crypto::b64(&random_bytes::<6>()).replace('/', "_")
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("bot.seed");
         let seed = create_seed(&path).unwrap();

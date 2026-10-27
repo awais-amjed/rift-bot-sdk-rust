@@ -35,8 +35,22 @@ type Calls = Arc<Mutex<HashMap<String, Call>>>;
 /// Decode anything ffmpeg understands into what LiveKit wants.
 fn decode(source: &str) -> std::io::Result<Child> {
     Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-i", source, "-f", "s16le"])
-        .args(["-ar", &SAMPLE_RATE.to_string(), "-ac", &CHANNELS.to_string(), "pipe:1"])
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            source,
+            "-f",
+            "s16le",
+        ])
+        .args([
+            "-ar",
+            &SAMPLE_RATE.to_string(),
+            "-ac",
+            &CHANNELS.to_string(),
+            "pipe:1",
+        ])
         .stdout(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
@@ -48,10 +62,18 @@ fn decode(source: &str) -> std::io::Result<Child> {
 /// this bot's manifest marks `summon: true`, and it is the only source that
 /// works for a **private** voice channel, which a bot cannot otherwise see.
 async fn voice_channel_of(bot: &Bot, user_id: &str) -> Result<Option<String>, BotError> {
-    if let Some((channel, _)) = bot.summons().await?.into_iter().find(|(_, by)| by.as_deref() == Some(user_id)) {
+    if let Some((channel, _)) = bot
+        .summons()
+        .await?
+        .into_iter()
+        .find(|(_, by)| by.as_deref() == Some(user_id))
+    {
         return Ok(Some(channel));
     }
-    let data = bot.session().call_function("voice_roster", &json!({})).await?;
+    let data = bot
+        .session()
+        .call_function("voice_roster", &json!({}))
+        .await?;
     Ok(data["roster"][user_id].as_str().map(str::to_string))
 }
 
@@ -60,7 +82,9 @@ async fn voice_channel_of(bot: &Bot, user_id: &str) -> Result<Option<String>, Bo
 async fn stop_playing(bot: &Bot, calls: &Calls, channel_id: &str) -> Result<(), BotError> {
     let track = {
         let mut calls = calls.lock().unwrap();
-        let Some(call) = calls.get_mut(channel_id) else { return Ok(()) };
+        let Some(call) = calls.get_mut(channel_id) else {
+            return Ok(());
+        };
         call.voice.stop();
         call.track.take()
     };
@@ -81,26 +105,49 @@ async fn disconnect(bot: &Bot, calls: &Calls, channel_id: &str) -> Result<(), Bo
     bot.dismiss_self(channel_id).await
 }
 
-async fn play(bot: &Bot, calls: &Calls, message: &BotMessage, source: &str) -> Result<(), BotError> {
+async fn play(
+    bot: &Bot,
+    calls: &Calls,
+    message: &BotMessage,
+    source: &str,
+) -> Result<(), BotError> {
     let Some(channel) = voice_channel_of(bot, &message.sender_id).await? else {
-        return bot.reply_privately(message, "Join a voice channel first.").await;
+        return bot
+            .reply_privately(message, "Join a voice channel first.")
+            .await;
     };
     stop_playing(bot, calls, &channel).await?;
 
     // Joined once and kept: leaving between tracks would mean a fresh token, a
     // fresh key and a participant that flickers in and out of the room.
-    let existing = calls.lock().unwrap().get(&channel).map(|c| c.voice.clone()).filter(|v| v.connected());
+    let existing = calls
+        .lock()
+        .unwrap()
+        .get(&channel)
+        .map(|c| c.voice.clone())
+        .filter(|v| v.connected());
     let voice = match existing {
         Some(voice) => voice,
         None => {
             let voice = Arc::new(bot.join_voice(&channel, &VoiceOptions::default()).await?);
-            calls.lock().unwrap().insert(channel.clone(), Call { voice: voice.clone(), track: None });
+            calls.lock().unwrap().insert(
+                channel.clone(),
+                Call {
+                    voice: voice.clone(),
+                    track: None,
+                },
+            );
             // The room can end without the bot hearing why (a member's client
             // dismissing it in a private channel), so the connection says so.
-            let (bot, calls, channel, watched) = (bot.clone(), calls.clone(), channel.clone(), voice.clone());
+            let (bot, calls, channel, watched) =
+                (bot.clone(), calls.clone(), channel.clone(), voice.clone());
             tokio::spawn(async move {
                 watched.closed().await;
-                let ours = calls.lock().unwrap().get(&channel).is_some_and(|c| Arc::ptr_eq(&c.voice, &watched));
+                let ours = calls
+                    .lock()
+                    .unwrap()
+                    .get(&channel)
+                    .is_some_and(|c| Arc::ptr_eq(&c.voice, &watched));
                 if ours {
                     let _ = stop_playing(&bot, &calls, &channel).await;
                     calls.lock().unwrap().remove(&channel);
@@ -111,11 +158,18 @@ async fn play(bot: &Bot, calls: &Calls, message: &BotMessage, source: &str) -> R
     };
 
     let mut decoder = decode(source).map_err(|e| BotError::new(format!("starting ffmpeg: {e}")))?;
-    let pcm = decoder.stdout.take().ok_or_else(|| BotError::new("ffmpeg has no stdout"))?;
+    let pcm = decoder
+        .stdout
+        .take()
+        .ok_or_else(|| BotError::new("ffmpeg has no stdout"))?;
     let panel_id = bot
         .panel(
             &message.channel_id,
-            &[heading("Now playing"), text(source), actions(&[button("Stop", "stop").danger()])],
+            &[
+                heading("Now playing"),
+                text(source),
+                actions(&[button("Stop", "stop").danger()]),
+            ],
             &PanelOptions::default(),
         )
         .await?;
@@ -132,7 +186,12 @@ async fn play(bot: &Bot, calls: &Calls, message: &BotMessage, source: &str) -> R
         }
         // Tidy up only if this is still the track playing: a `/play` that
         // replaced it has already started its own.
-        let still_ours = calls.lock().unwrap().get(&channel).and_then(|c| c.track.as_ref()).is_some_and(|t| t.1 == panel_id);
+        let still_ours = calls
+            .lock()
+            .unwrap()
+            .get(&channel)
+            .and_then(|c| c.track.as_ref())
+            .is_some_and(|t| t.1 == panel_id);
         if still_ours {
             let _ = stop_playing(&bot, &calls, &channel).await;
         }
@@ -155,7 +214,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return Ok(());
                 }
                 let channel = calls.lock().unwrap().iter().find_map(|(id, call)| {
-                    call.track.as_ref().filter(|t| t.1.is_some() && t.1 == message.panel_id).map(|_| id.clone())
+                    call.track
+                        .as_ref()
+                        .filter(|t| t.1.is_some() && t.1 == message.panel_id)
+                        .map(|_| id.clone())
                 });
                 return match channel {
                     Some(channel) => stop_playing(&bot, &calls, &channel).await,
@@ -163,10 +225,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
             }
             match message.command().as_str() {
-                "play" if message.args().is_empty() => bot.reply_privately(&message, "Usage: /play <url>").await,
+                "play" if message.args().is_empty() => {
+                    bot.reply_privately(&message, "Usage: /play <url>").await
+                }
                 "play" => play(&bot, &calls, &message, message.args()).await,
                 "stop" | "disconnect" => {
-                    let Some(channel) = voice_channel_of(&bot, &message.sender_id).await? else { return Ok(()) };
+                    let Some(channel) = voice_channel_of(&bot, &message.sender_id).await? else {
+                        return Ok(());
+                    };
                     if message.command() == "stop" {
                         stop_playing(&bot, &calls, &channel).await
                     } else {

@@ -49,7 +49,10 @@ pub struct Suggestion {
 
 impl Suggestion {
     pub fn new(label: impl Into<String>, value: impl Into<String>) -> Self {
-        Self { label: label.into(), value: value.into() }
+        Self {
+            label: label.into(),
+            value: value.into(),
+        }
     }
 }
 
@@ -57,7 +60,9 @@ fn is_uuid(s: &str) -> bool {
     let groups: Vec<&str> = s.split('-').collect();
     groups.len() == 5
         && groups.iter().zip([8, 4, 4, 4, 12]).all(|(g, len)| {
-            g.len() == len && g.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+            g.len() == len
+                && g.chars()
+                    .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
         })
 }
 
@@ -75,7 +80,9 @@ pub fn parse_suggest_request(payload: &Value) -> Option<SuggestRequest> {
     let channel = payload["channel"].as_str()?;
     let command = payload["command"].as_str()?;
     let text = payload["text"].as_str()?;
-    let id_ok = all_in(id, 8..=64, |c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    let id_ok = all_in(id, 8..=64, |c| {
+        c.is_ascii_alphanumeric() || c == '_' || c == '-'
+    });
     let command_ok = all_in(command, 1..=32, |c| {
         c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
     });
@@ -108,7 +115,10 @@ pub fn clean_suggestions(items: &[Suggestion]) -> Vec<Suggestion> {
         .take(MAX_SUGGESTIONS)
         .map(|s| Suggestion {
             label: if s.label.chars().count() > MAX_LABEL {
-                format!("{}…", s.label.chars().take(MAX_LABEL - 1).collect::<String>())
+                format!(
+                    "{}…",
+                    s.label.chars().take(MAX_LABEL - 1).collect::<String>()
+                )
             } else {
                 s.label.clone()
             },
@@ -138,7 +148,10 @@ mod tests {
     fn a_well_formed_request_is_read_as_sent() {
         let r = parse_suggest_request(&request()).unwrap();
         assert_eq!((r.id.as_str(), r.from.as_str()), ("abcdEFGH_-12", UUID_A));
-        assert_eq!((r.channel_id.as_str(), r.command.as_str(), r.text.as_str()), (UUID_B, "play", "thats so tr"));
+        assert_eq!(
+            (r.channel_id.as_str(), r.command.as_str(), r.text.as_str()),
+            (UUID_B, "play", "thats so tr")
+        );
     }
 
     #[test]
@@ -163,7 +176,9 @@ mod tests {
 
     #[test]
     fn the_answer_keeps_ten_drops_the_unsendable_and_shortens_a_long_label() {
-        let mut items: Vec<Suggestion> = (0..12).map(|i| Suggestion::new(format!("song {i}"), format!("v{i}"))).collect();
+        let mut items: Vec<Suggestion> = (0..12)
+            .map(|i| Suggestion::new(format!("song {i}"), format!("v{i}")))
+            .collect();
         items.insert(0, Suggestion::new("two lines", "a\nb"));
         items.insert(0, Suggestion::new(" ", "blank label"));
         items.insert(0, Suggestion::new("long", "x".repeat(501)));
@@ -179,7 +194,10 @@ mod tests {
     fn the_answer_echoes_the_request_id() {
         let r = parse_suggest_request(&request()).unwrap();
         let payload = suggestions_payload(&r, "bot-1", &[Suggestion::new("a", "b")]);
-        assert_eq!(payload, json!({ "v": 1, "id": "abcdEFGH_-12", "bot": "bot-1",
-                                    "items": [{ "label": "a", "value": "b" }] }));
+        assert_eq!(
+            payload,
+            json!({ "v": 1, "id": "abcdEFGH_-12", "bot": "bot-1",
+                                    "items": [{ "label": "a", "value": "b" }] })
+        );
     }
 }

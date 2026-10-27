@@ -21,7 +21,10 @@ const LIMIT: usize = 5;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (session, rest) = common::session_from_args()?;
-    let channel_id = rest.first().ok_or("usage: watch_bot <config file> <seed file> <channel id>")?.clone();
+    let channel_id = rest
+        .first()
+        .ok_or("usage: watch_bot <config file> <seed file> <channel id>")?
+        .clone();
     let bot = Bot::new(session);
 
     // A toy rule, and the shape a real one has: count what arrives, say
@@ -32,7 +35,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .watch_channel(&channel_id, move |message| {
             let (bot, recent, channel) = (poster.clone(), recent.clone(), channel.clone());
             async move {
-                println!("[{}] {}: {}", message.sent_at, message.sender_id, message.text);
+                println!(
+                    "[{}] {}: {}",
+                    message.sent_at, message.sender_id, message.text
+                );
                 let count = {
                     let mut recent = recent.lock().unwrap();
                     let times = recent.entry(message.sender_id).or_default();
@@ -43,7 +49,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if count == LIMIT {
                     // In the clear, even in a channel it can read: a member
                     // can always tell which half of the room a line came from.
-                    bot.post(&channel, &format!("That is {LIMIT} messages in ten seconds.")).await?;
+                    bot.post(
+                        &channel,
+                        &format!("That is {LIMIT} messages in ten seconds."),
+                    )
+                    .await?;
                 }
                 Ok::<(), rift_bot::BotError>(())
             }

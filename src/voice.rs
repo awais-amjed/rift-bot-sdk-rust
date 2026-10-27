@@ -212,9 +212,18 @@ impl VoiceConnection {
         if !self.connected() {
             return Err(BotError::new("this connection has left its room"));
         }
-        let source = NativeAudioSource::new(AudioSourceOptions::default(), SAMPLE_RATE, CHANNELS, QUEUE_MS);
-        let track = LocalAudioTrack::create_audio_track("audio", RtcAudioSource::Native(source.clone()));
-        let mut options = TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() };
+        let source = NativeAudioSource::new(
+            AudioSourceOptions::default(),
+            SAMPLE_RATE,
+            CHANNELS,
+            QUEUE_MS,
+        );
+        let track =
+            LocalAudioTrack::create_audio_track("audio", RtcAudioSource::Native(source.clone()));
+        let mut options = TrackPublishOptions {
+            source: TrackSource::Microphone,
+            ..Default::default()
+        };
         if quality == Quality::Music {
             options.audio_encoding = Some(audio::MUSIC_HIGH_QUALITY_STEREO.encoding);
             options.dtx = false;
@@ -227,7 +236,11 @@ impl VoiceConnection {
             .await
             .map_err(|e| BotError::new(format!("could not publish: {e}")))?;
         *self.source.lock().unwrap() = Some(source.clone());
-        Ok(AudioOutput { voice: self, source, sid: publication.sid() })
+        Ok(AudioOutput {
+            voice: self,
+            source,
+            sid: publication.sid(),
+        })
     }
 
     /// Stop the current [`play`](Self::play) now, queued sound included. The
@@ -259,7 +272,9 @@ impl VoiceConnection {
             .await
             .into_iter()
             .filter_map(|s| match s {
-                RtcStats::Codec(c) if c.codec.mime_type.contains("opus") => Some(c.codec.sdp_fmtp_line),
+                RtcStats::Codec(c) if c.codec.mime_type.contains("opus") => {
+                    Some(c.codec.sdp_fmtp_line)
+                }
                 _ => None,
             })
             .collect()
@@ -270,7 +285,11 @@ impl VoiceConnection {
     /// five seconds at most: the message is not worth hanging a leave on.
     pub async fn leave(&self) -> Result<()> {
         self.stop();
-        let result = self.room.close().await.map_err(|e| BotError::new(format!("leaving: {e}")));
+        let result = self
+            .room
+            .close()
+            .await
+            .map_err(|e| BotError::new(format!("leaving: {e}")));
         let told = async {
             self.closed().await;
             if let Some(said) = &self.said_left {
@@ -325,7 +344,12 @@ impl AudioOutput<'_> {
     pub async fn close(self) {
         self.voice.source.lock().unwrap().take();
         if self.voice.connected() {
-            let _ = self.voice.room.local_participant().unpublish_track(&self.sid).await;
+            let _ = self
+                .voice
+                .room
+                .local_participant()
+                .unpublish_track(&self.sid)
+                .await;
         }
     }
 }
@@ -334,7 +358,11 @@ impl AudioOutput<'_> {
 ///
 /// The token comes from `get_channel_token`, the edge function the app calls:
 /// there is no bot path, which is what stops the two drifting.
-pub async fn join_voice(session: &BotSession, channel_id: &str, options: &VoiceOptions) -> Result<VoiceConnection> {
+pub async fn join_voice(
+    session: &BotSession,
+    channel_id: &str,
+    options: &VoiceOptions,
+) -> Result<VoiceConnection> {
     // The media key first: without it the bot would connect, publish frames
     // nobody can decrypt, and look like a working bot everyone has muted.
     let key = media_key(session, channel_id).await?;
@@ -348,7 +376,9 @@ pub async fn join_voice(session: &BotSession, channel_id: &str, options: &VoiceO
             }),
         )
         .await?;
-    let token = data["token"].as_str().ok_or_else(|| BotError::new("get_channel_token returned no token"))?;
+    let token = data["token"]
+        .as_str()
+        .ok_or_else(|| BotError::new("get_channel_token returned no token"))?;
     // A server with more than one region holds each call on one node, and the
     // token is signed for that node alone. The reply says which; the default
     // is for a server too old to.
@@ -375,21 +405,34 @@ pub async fn join_voice(session: &BotSession, channel_id: &str, options: &VoiceO
 }
 
 /// Join with a token and the bot's media key, encrypting in slot 0.
-pub(crate) async fn connect(channel_id: &str, url: &str, token: &str, key: &[u8]) -> Result<VoiceConnection> {
+pub(crate) async fn connect(
+    channel_id: &str,
+    url: &str,
+    token: &str,
+    key: &[u8],
+) -> Result<VoiceConnection> {
     // Shared-key mode is right for a bot and only a bot: it publishes with one
     // key and subscribes to nothing it could decrypt anyway. Members run per
     // participant, which is what lets them hold a different key for the bot.
     let key_provider = KeyProvider::with_shared_key(KeyProviderOptions::default(), key.to_vec());
     key_provider.set_shared_key(key.to_vec(), BOT_KEY_INDEX);
     let mut room_options = RoomOptions::default();
-    room_options.encryption = Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
+    room_options.encryption = Some(E2eeOptions {
+        encryption_type: EncryptionType::Gcm,
+        key_provider,
+    });
 
     let (room, events) = Room::connect(url, token, room_options)
         .await
         .map_err(|e| BotError::new(format!("could not join the call: {e}")))?;
     let (closed_tx, closed) = watch::channel(false);
     let playing = Arc::new(AtomicBool::new(false));
-    watch_room(room.e2ee_manager().clone(), events, closed_tx, playing.clone());
+    watch_room(
+        room.e2ee_manager().clone(),
+        events,
+        closed_tx,
+        playing.clone(),
+    );
     Ok(VoiceConnection {
         channel_id: channel_id.to_string(),
         can_hear: grant_allows_subscribe(token),
@@ -448,7 +491,9 @@ struct SealedVoiceKey {
 async fn media_key(session: &BotSession, channel_id: &str) -> Result<Vec<u8>> {
     let deadline = Instant::now() + MEDIA_KEY_WAIT;
     loop {
-        let data = session.call_function("get_channel_key", &json!({ "channel_id": channel_id })).await?;
+        let data = session
+            .call_function("get_channel_key", &json!({ "channel_id": channel_id }))
+            .await?;
         if let Ok(sealed) = serde_json::from_value::<SealedVoiceKey>(data["my_voice_key"].clone()) {
             return unwrap_key(session.chat_identity(), &sealed.wrapped)
                 .ok_or_else(|| BotError::new("the media key sealed for this bot does not open"));
@@ -471,7 +516,10 @@ async fn livekit_url(session: &BotSession) -> Result<String> {
         livekit_url: Option<String>,
     }
     let rows: Vec<Row> = session
-        .select(&format!("servers?select=livekit_url&id=eq.{}", session.server_id()))
+        .select(&format!(
+            "servers?select=livekit_url&id=eq.{}",
+            session.server_id()
+        ))
         .await?;
     rows.into_iter()
         .next()
@@ -515,7 +563,14 @@ impl FrameCutter {
             .as_chunks::<FRAME_BYTES>()
             .0
             .iter()
-            .map(|frame| frame.as_chunks::<2>().0.iter().map(|&s| i16::from_le_bytes(s)).collect())
+            .map(|frame| {
+                frame
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&s| i16::from_le_bytes(s))
+                    .collect()
+            })
             .collect();
         self.carry.drain(..whole);
         frames
@@ -574,8 +629,12 @@ mod tests {
 
     #[test]
     fn what_the_token_says_about_hearing() {
-        assert!(!grant_allows_subscribe(&token(json!({ "video": { "canSubscribe": false } }))));
-        assert!(grant_allows_subscribe(&token(json!({ "video": { "canSubscribe": true } }))));
+        assert!(!grant_allows_subscribe(&token(
+            json!({ "video": { "canSubscribe": false } })
+        )));
+        assert!(grant_allows_subscribe(&token(
+            json!({ "video": { "canSubscribe": true } })
+        )));
         // An absent flag means yes, which is what LiveKit does.
         assert!(grant_allows_subscribe(&token(json!({ "video": {} }))));
         assert!(!grant_allows_subscribe("not a token"));

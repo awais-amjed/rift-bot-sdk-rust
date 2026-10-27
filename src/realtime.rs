@@ -87,7 +87,12 @@ struct Protocol {
 
 impl Protocol {
     fn new(topic: &str, presence: Option<Value>) -> Self {
-        Self { topic: format!("realtime:{topic}"), presence, next_ref: 0, join_ref: None }
+        Self {
+            topic: format!("realtime:{topic}"),
+            presence,
+            next_ref: 0,
+            join_ref: None,
+        }
     }
 
     fn take_ref(&mut self) -> String {
@@ -144,7 +149,9 @@ impl Protocol {
     }
 
     fn read(&self, text: &str) -> Incoming {
-        let Ok(frame) = serde_json::from_str::<Value>(text) else { return Incoming::Nothing };
+        let Ok(frame) = serde_json::from_str::<Value>(text) else {
+            return Incoming::Nothing;
+        };
         if frame["topic"].as_str() != Some(&self.topic) {
             return Incoming::Nothing;
         }
@@ -193,7 +200,14 @@ impl RealtimeListener {
         let (token, token_rx) = watch::channel(options.token.clone());
         let connected = Arc::new(AtomicBool::new(false));
         let task = tokio::spawn(run(options, token_rx, out, connected.clone()));
-        (Self { token, connected, task }, heard)
+        (
+            Self {
+                token,
+                connected,
+                task,
+            },
+            heard,
+        )
     }
 
     /// Whether the topic is joined right now.
@@ -240,9 +254,10 @@ async fn run(
         let result = session(&options, &url, &mut token, &out, &connected, &mut attempt).await;
         connected.store(false, Ordering::Relaxed);
         if let Err(error) = result
-            && out.send(Heard::Error(error)).is_err() {
-                return; // Nobody is listening any more.
-            }
+            && out.send(Heard::Error(error)).is_err()
+        {
+            return; // Nobody is listening any more.
+        }
         if out.is_closed() {
             return;
         }
@@ -260,17 +275,24 @@ async fn session(
     connected: &AtomicBool,
     attempt: &mut usize,
 ) -> Result<(), BotError> {
-    let fail = |e: &dyn std::fmt::Display| BotError::new(format!("realtime: {}: {e}", options.topic));
-    let (socket, _) = tokio_tungstenite::connect_async(url).await.map_err(|e| fail(&e))?;
+    let fail =
+        |e: &dyn std::fmt::Display| BotError::new(format!("realtime: {}: {e}", options.topic));
+    let (socket, _) = tokio_tungstenite::connect_async(url)
+        .await
+        .map_err(|e| fail(&e))?;
     let (mut write, mut read) = socket.split();
     *attempt = 0;
 
     let mut protocol = Protocol::new(&options.topic, options.presence.clone());
     let join = protocol.join(&token.borrow_and_update());
-    write.send(Message::text(join.to_string())).await.map_err(|e| fail(&e))?;
+    write
+        .send(Message::text(join.to_string()))
+        .await
+        .map_err(|e| fail(&e))?;
     connected.store(true, Ordering::Relaxed);
 
-    let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + HEARTBEAT, HEARTBEAT);
+    let mut heartbeat =
+        tokio::time::interval_at(tokio::time::Instant::now() + HEARTBEAT, HEARTBEAT);
     loop {
         let frame = tokio::select! {
             frame = read.next() => frame,
@@ -302,7 +324,10 @@ async fn session(
             }
             Incoming::Joined => {
                 if let Some(track) = protocol.track() {
-                    write.send(Message::text(track.to_string())).await.map_err(|e| fail(&e))?;
+                    write
+                        .send(Message::text(track.to_string()))
+                        .await
+                        .map_err(|e| fail(&e))?;
                 }
             }
             Incoming::Refused(reason) => {
@@ -344,7 +369,10 @@ mod tests {
         })));
         assert_eq!(
             heard,
-            Incoming::Broadcast(RealtimeEvent { event: "new_message".into(), payload: json!({ "id": 7 }) })
+            Incoming::Broadcast(RealtimeEvent {
+                event: "new_message".into(),
+                payload: json!({ "id": 7 })
+            })
         );
     }
 
@@ -422,7 +450,9 @@ mod tests {
             for round in 0..2 {
                 let (tcp, _) = listener.accept().await.unwrap();
                 let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
-                let join: Value = serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+                let join: Value =
+                    serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap())
+                        .unwrap();
                 seen_tx.send(join).unwrap();
                 if round == 0 {
                     let broadcast = json!({
@@ -431,7 +461,8 @@ mod tests {
                     });
                     ws.send(Message::text(broadcast.to_string())).await.unwrap();
                     let renewed: Value =
-                        serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+                        serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap())
+                            .unwrap();
                     seen_tx.send(renewed).unwrap();
                     // Drop the connection: the listener has to come back.
                 }
@@ -457,7 +488,10 @@ mod tests {
         assert_eq!(renewed["event"], "access_token");
         assert_eq!(renewed["payload"]["access_token"], "new");
 
-        let rejoin = tokio::time::timeout(Duration::from_secs(5), seen.recv()).await.unwrap().unwrap();
+        let rejoin = tokio::time::timeout(Duration::from_secs(5), seen.recv())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(rejoin["event"], "phx_join");
         assert_eq!(rejoin["payload"]["access_token"], "new");
         rt.stop();

@@ -27,7 +27,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             match message.args() {
-                "" => bot.reply_privately(&message, "Give me something to echo.").await,
+                "" => {
+                    bot.reply_privately(&message, "Give me something to echo.")
+                        .await
+                }
                 text => bot.reply(&message, text).await,
             }
         }

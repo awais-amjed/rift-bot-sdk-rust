@@ -19,7 +19,10 @@ fn vectors() -> Value {
 }
 
 fn s<'a>(v: &'a Value, path: &str) -> &'a str {
-    path.split('.').fold(v, |v, k| &v[k]).as_str().unwrap_or_else(|| panic!("{path}"))
+    path.split('.')
+        .fold(v, |v, k| &v[k])
+        .as_str()
+        .unwrap_or_else(|| panic!("{path}"))
 }
 
 fn seed(v: &Value) -> Vec<u8> {
@@ -46,8 +49,16 @@ fn wrapped(v: &Value) -> Wrapped {
 fn the_key_ladder_hmac_over_the_domain_strings() {
     let v = vectors();
     for (key, expected) in v["hmac"].as_object().unwrap() {
-        let message = if key == "vault_key" { "vault:v1" } else { &key["context_".len()..] };
-        assert_eq!(b64(&hmac(&seed(&v), message)), expected.as_str().unwrap(), "{message}");
+        let message = if key == "vault_key" {
+            "vault:v1"
+        } else {
+            &key["context_".len()..]
+        };
+        assert_eq!(
+            b64(&hmac(&seed(&v), message)),
+            expected.as_str().unwrap(),
+            "{message}"
+        );
     }
 }
 
@@ -55,16 +66,25 @@ fn the_key_ladder_hmac_over_the_domain_strings() {
 fn a_server_identity_is_scoped_to_host_and_server() {
     let v = vectors();
     let identity = server_identity(&v);
-    assert_eq!(b64(&identity.public_key), s(&v, "server_identity.public_key_base64"));
+    assert_eq!(
+        b64(&identity.public_key),
+        s(&v, "server_identity.public_key_base64")
+    );
     assert_eq!(identity.stable_id, s(&v, "server_identity.stable_id"));
-    assert_eq!(to_base58(&identity.public_key), s(&v, "server_identity.public_key_base58"));
+    assert_eq!(
+        to_base58(&identity.public_key),
+        s(&v, "server_identity.public_key_base58")
+    );
 }
 
 #[test]
 fn the_central_identity_has_no_server_in_its_scope() {
     let v = vectors();
     let identity = derive_server_identity(&seed(&v), s(&v, "central_identity.host"), None);
-    assert_eq!(b64(&identity.public_key), s(&v, "central_identity.public_key_base64"));
+    assert_eq!(
+        b64(&identity.public_key),
+        s(&v, "central_identity.public_key_base64")
+    );
     assert_eq!(identity.stable_id, s(&v, "central_identity.stable_id"));
 }
 
@@ -72,7 +92,10 @@ fn the_central_identity_has_no_server_in_its_scope() {
 fn the_signed_payload_both_shapes() {
     let v = vectors();
     let channel = "aaaa1111-0000-4000-8000-000000000001";
-    assert_eq!(signed_payload(channel, 3, "bm9uY2U=", "Y2lwaGVy"), s(&v, "signed_payload.channel"));
+    assert_eq!(
+        signed_payload(channel, 3, "bm9uY2U=", "Y2lwaGVy"),
+        s(&v, "signed_payload.channel")
+    );
     // Version 0 and an empty nonce leave two colons together.
     let bot = signed_payload(channel, 0, "", "/echo hello");
     assert_eq!(bot, s(&v, "signed_payload.bot_plaintext"));
@@ -84,8 +107,14 @@ fn a_dm_context_is_sorted() {
     let v = vectors();
     let a = "00000000-0000-4000-8000-000000000001";
     let b = "ffffffff-0000-4000-8000-000000000002";
-    assert_eq!(conversation_context(a, b), s(&v, "signed_payload.dm_context"));
-    assert_eq!(conversation_context(b, a), s(&v, "signed_payload.dm_context"));
+    assert_eq!(
+        conversation_context(a, b),
+        s(&v, "signed_payload.dm_context")
+    );
+    assert_eq!(
+        conversation_context(b, a),
+        s(&v, "signed_payload.dm_context")
+    );
 }
 
 #[test]
@@ -95,15 +124,26 @@ fn a_signature_dart_produced_byte_for_byte_and_it_verifies() {
     let identity = server_identity(&v);
     let payload = s(&v, "signed_payload.channel");
     assert_eq!(identity.sign(payload), s(&v, "signature.base64"));
-    assert!(verify_signature(payload, s(&v, "signature.base64"), &identity.public_key));
-    assert!(!verify_signature(&format!("{payload}x"), s(&v, "signature.base64"), &identity.public_key));
+    assert!(verify_signature(
+        payload,
+        s(&v, "signature.base64"),
+        &identity.public_key
+    ));
+    assert!(!verify_signature(
+        &format!("{payload}x"),
+        s(&v, "signature.base64"),
+        &identity.public_key
+    ));
 }
 
 #[test]
 fn a_bot_opens_what_a_member_sealed_for_it() {
     let v = vectors();
     let identity = derive_chat_identity(&seed(&v), s(&v, "chat_identity.host"));
-    assert_eq!(b64(&identity.public_key), s(&v, "chat_identity.public_key_base64"));
+    assert_eq!(
+        b64(&identity.public_key),
+        s(&v, "chat_identity.public_key_base64")
+    );
     let opened = unwrap_key(&identity, &wrapped(&v)).expect("opens");
     assert_eq!(b64(&opened), s(&v, "wrapped_key.key_base64"));
 }
@@ -123,7 +163,10 @@ fn tampering_with_the_sealed_bytes_is_caught() {
 fn the_key_a_bot_speaks_with_is_one_way_from_the_channel_key() {
     let v = vectors();
     let channel_key = STANDARD.decode(s(&v, "wrapped_key.key_base64")).unwrap();
-    let derived = hmac(&channel_key, &format!("voicebot:v1:{}", s(&v, "bot_voice_key.bot_id")));
+    let derived = hmac(
+        &channel_key,
+        &format!("voicebot:v1:{}", s(&v, "bot_voice_key.bot_id")),
+    );
     assert_eq!(b64(&derived), s(&v, "bot_voice_key.key_base64"));
 }
 
@@ -149,14 +192,28 @@ fn a_body_round_trips_and_a_bare_string_is_its_own_text() {
 #[test]
 fn the_three_invite_shapes() {
     let plain = parse_invite("http://localhost:8000#abc123").unwrap();
-    assert_eq!((plain.server_url.as_str(), plain.invite_code.as_str()), ("http://localhost:8000", "abc123"));
+    assert_eq!(
+        (plain.server_url.as_str(), plain.invite_code.as_str()),
+        ("http://localhost:8000", "abc123")
+    );
     // Split on the last `#` alone and the wrapper stays glued to the URL.
     let app = parse_invite("rift://join#http://localhost:8000#abc123").unwrap();
     assert_eq!(app.server_url, "http://localhost:8000");
     let web = parse_invite("https://joinrift.app/join#https://x.supabase.co#dead99").unwrap();
-    assert_eq!((web.server_url.as_str(), web.invite_code.as_str()), ("https://x.supabase.co", "dead99"));
-    assert_eq!(parse_invite("http://localhost:8000/#abc").unwrap().server_url, "http://localhost:8000");
+    assert_eq!(
+        (web.server_url.as_str(), web.invite_code.as_str()),
+        ("https://x.supabase.co", "dead99")
+    );
+    assert_eq!(
+        parse_invite("http://localhost:8000/#abc")
+            .unwrap()
+            .server_url,
+        "http://localhost:8000"
+    );
     for input in ["", "http://localhost:8000", "#abc", "   "] {
-        assert!(parse_invite(input).is_none(), "{input:?} parsed as an invite");
+        assert!(
+            parse_invite(input).is_none(),
+            "{input:?} parsed as an invite"
+        );
     }
 }

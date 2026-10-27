@@ -32,8 +32,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
 
-    std::fs::write(&config_file, serde_json::to_string_pretty(&session.config())?)?;
-    println!("joined as {username} ({}); saved {config_file}", session.user_id().unwrap_or_default());
+    std::fs::write(
+        &config_file,
+        serde_json::to_string_pretty(&session.config())?,
+    )?;
+    println!(
+        "joined as {username} ({}); saved {config_file}",
+        session.user_id().unwrap_or_default()
+    );
     Ok(())
 }
 

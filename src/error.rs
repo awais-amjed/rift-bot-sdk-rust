@@ -14,11 +14,17 @@ pub struct BotError {
 
 impl BotError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), status: None }
+        Self {
+            message: message.into(),
+            status: None,
+        }
     }
 
     pub(crate) fn with_status(message: impl Into<String>, status: u16) -> Self {
-        Self { message: message.into(), status: Some(status) }
+        Self {
+            message: message.into(),
+            status: Some(status),
+        }
     }
 }
 

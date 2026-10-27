@@ -18,7 +18,10 @@ pub fn text(text: &str) -> Block {
 
 /// Key/value rows.
 pub fn fields(items: &[(&str, &str)]) -> Block {
-    let items: Vec<Value> = items.iter().map(|(label, value)| json!({ "label": label, "value": value })).collect();
+    let items: Vec<Value> = items
+        .iter()
+        .map(|(label, value)| json!({ "label": label, "value": value }))
+        .collect();
     json!({ "type": "fields", "items": items })
 }
 
@@ -40,7 +43,11 @@ pub struct Button {
 }
 
 pub fn button(label: &str, action: &str) -> Button {
-    Button { label: label.into(), action: action.into(), style: None }
+    Button {
+        label: label.into(),
+        action: action.into(),
+        style: None,
+    }
 }
 
 impl Button {
@@ -73,7 +80,10 @@ pub fn actions(buttons: &[Button]) -> Block {
 /// A menu. Picking `(label, value)` arrives as a press of `action` with
 /// `action_value` set to `value`.
 pub fn select(action: &str, placeholder: Option<&str>, options: &[(&str, &str)]) -> Block {
-    let options: Vec<Value> = options.iter().map(|(label, value)| json!({ "label": label, "value": value })).collect();
+    let options: Vec<Value> = options
+        .iter()
+        .map(|(label, value)| json!({ "label": label, "value": value }))
+        .collect();
     let mut block = json!({ "type": "select", "action": action, "options": options });
     if let Some(text) = placeholder {
         block["text"] = json!(text);

@@ -42,7 +42,11 @@ pub fn derive_chat_identity(seed: &[u8], host: &str) -> ChatIdentity {
 impl ChatIdentity {
     fn shared_with(&self, their_public: &[u8]) -> Option<[u8; 32]> {
         let theirs = <[u8; 32]>::try_from(their_public).ok()?;
-        Some(self.secret.diffie_hellman(&PublicKey::from(theirs)).to_bytes())
+        Some(
+            self.secret
+                .diffie_hellman(&PublicKey::from(theirs))
+                .to_bytes(),
+        )
     }
 }
 
@@ -87,7 +91,10 @@ fn open_bytes(ciphertext: &str, nonce: &str, key: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     cipher
-        .decrypt(&Nonce::try_from(nonce.as_slice()).ok()?, unb64(ciphertext)?.as_slice())
+        .decrypt(
+            &Nonce::try_from(nonce.as_slice()).ok()?,
+            unb64(ciphertext)?.as_slice(),
+        )
         .ok()
 }
 

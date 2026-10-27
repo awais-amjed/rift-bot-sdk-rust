@@ -62,17 +62,28 @@ impl VoicePlaces {
 /// Never fails. Losing this message is what every bot did before it existed,
 /// and a member's next roster read puts it right; failing a join or a leave
 /// over it would be worse.
-pub(crate) async fn announce_place(session: &BotSession, change: impl FnOnce(&mut VoicePlaces) -> Option<String>) {
+pub(crate) async fn announce_place(
+    session: &BotSession,
+    change: impl FnOnce(&mut VoicePlaces) -> Option<String>,
+) {
     let mut places = session.voice_places().lock().await;
     let channel_id = change(&mut places);
-    let Some(user_id) = session.user_id() else { return };
+    let Some(user_id) = session.user_id() else {
+        return;
+    };
     let topic = voice_location_topic(session.server_id());
     let payload = voice_location(&user_id, channel_id.as_deref());
-    let mut result = session.broadcast(&topic, VOICE_LOCATION_EVENT, &payload).await;
+    let mut result = session
+        .broadcast(&topic, VOICE_LOCATION_EVENT, &payload)
+        .await;
     // An hour into a song the session has run out. Once more, signed in again.
     if matches!(&result, Err(e) if e.status == Some(401)) {
         result = match session.login().await {
-            Ok(()) => session.broadcast(&topic, VOICE_LOCATION_EVENT, &payload).await,
+            Ok(()) => {
+                session
+                    .broadcast(&topic, VOICE_LOCATION_EVENT, &payload)
+                    .await
+            }
             Err(e) => Err(e),
         };
     }
@@ -93,8 +104,14 @@ mod tests {
     fn the_message_is_the_apps() {
         assert_eq!(VOICE_LOCATION_EVENT, "here");
         assert_eq!(voice_location_topic("s"), "voice:s");
-        assert_eq!(voice_location("u", Some("c")), json!({ "v": 1, "userId": "u", "channelId": "c" }));
-        assert_eq!(voice_location("u", None), json!({ "v": 1, "userId": "u", "channelId": null }));
+        assert_eq!(
+            voice_location("u", Some("c")),
+            json!({ "v": 1, "userId": "u", "channelId": "c" })
+        );
+        assert_eq!(
+            voice_location("u", None),
+            json!({ "v": 1, "userId": "u", "channelId": null })
+        );
     }
 
     #[test]

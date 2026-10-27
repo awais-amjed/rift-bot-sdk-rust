@@ -90,7 +90,10 @@ impl ChannelReader {
             senders: SenderKeys::new(session.clone()),
             session,
             channel_id: channel_id.to_string(),
-            keys: Mutex::new(Keys { by_version: HashMap::new(), loaded_at: None }),
+            keys: Mutex::new(Keys {
+                by_version: HashMap::new(),
+                loaded_at: None,
+            }),
         }
     }
 
@@ -122,7 +125,10 @@ impl ChannelReader {
     pub async fn newest_id(&self) -> Result<i64> {
         let rows: Vec<IdRow> = self
             .session
-            .select(&format!("rpc/channel_messages?p_channel={}&p_limit=1&select=id", self.channel_id))
+            .select(&format!(
+                "rpc/channel_messages?p_channel={}&p_limit=1&select=id",
+                self.channel_id
+            ))
             .await?;
         Ok(rows.first().map_or(0, |r| r.id))
     }
@@ -149,12 +155,18 @@ impl ChannelReader {
         for row in rows {
             // A row with no sender is a webhook post or a system notice:
             // neither sealed nor signed, and withheld by the policy anyway.
-            let Some(sender_id) = row.sender_id.clone() else { continue };
-            let Some(signature) = row.signature.clone() else { continue };
+            let Some(sender_id) = row.sender_id.clone() else {
+                continue;
+            };
+            let Some(signature) = row.signature.clone() else {
+                continue;
+            };
             if row.key_version < 1 {
                 continue;
             }
-            let Some(key) = self.key_for(row.key_version).await? else { break };
+            let Some(key) = self.key_for(row.key_version).await? else {
+                break;
+            };
             if let Some(message) = self.open_row(row, &sender_id, &signature, &key).await? {
                 out.push(message);
             }
@@ -169,19 +181,28 @@ impl ChannelReader {
         signature: &str,
         key: &[u8],
     ) -> Result<Option<ChannelMessage>> {
-        let payload = signed_payload(&self.channel_id, row.key_version, &row.nonce, &row.ciphertext);
-        let Some(sender_key) = self.senders.public_key_for(sender_id).await? else { return Ok(None) };
+        let payload = signed_payload(
+            &self.channel_id,
+            row.key_version,
+            &row.nonce,
+            &row.ciphertext,
+        );
+        let Some(sender_key) = self.senders.public_key_for(sender_id).await? else {
+            return Ok(None);
+        };
         if !verify_signature(&payload, signature, &sender_key) {
             return Ok(None);
         }
-        Ok(open(&row.ciphertext, &row.nonce, key).map(|plain| ChannelMessage {
-            id: row.id,
-            channel_id: row.channel_id,
-            sender_id: sender_id.to_string(),
-            text: decode_body(&plain),
-            sent_at: row.created_at,
-            key_version: row.key_version,
-        }))
+        Ok(
+            open(&row.ciphertext, &row.nonce, key).map(|plain| ChannelMessage {
+                id: row.id,
+                channel_id: row.channel_id,
+                sender_id: sender_id.to_string(),
+                text: decode_body(&plain),
+                sent_at: row.created_at,
+                key_version: row.key_version,
+            }),
+        )
     }
 
     /// The channel key for one version. A miss refetches the keyring, but no
@@ -267,17 +288,26 @@ mod tests {
         })
         .await;
         let reader = ChannelReader::new(server.session(BOT), CHANNEL);
-        Fixture { server, rows, keyring, reader }
+        Fixture {
+            server,
+            rows,
+            keyring,
+            reader,
+        }
     }
 
     impl Fixture {
         fn grant(&self, version: i64, key: &[u8; 32]) {
             let wrapped = wrap_for(&self.reader.session.chat_identity().public_key, key);
-            self.keyring.lock().unwrap().push(merged(json!({ "key_version": version }), wrapped));
+            self.keyring
+                .lock()
+                .unwrap()
+                .push(merged(json!({ "key_version": version }), wrapped));
         }
 
         fn row(&self, id: i64, fields: Value) {
-            let base = json!({ "id": id, "channel_id": CHANNEL, "sender_id": MEMBER, "created_at": "x" });
+            let base =
+                json!({ "id": id, "channel_id": CHANNEL, "sender_id": MEMBER, "created_at": "x" });
             self.rows.lock().unwrap().push(merged(base, fields));
         }
 
@@ -296,7 +326,14 @@ mod tests {
 
         let out = f.reader.since(0).await.unwrap();
         assert_eq!(out.len(), 1);
-        assert_eq!((out[0].text.as_str(), out[0].sender_id.as_str(), out[0].key_version), ("the quiet part", MEMBER, 2));
+        assert_eq!(
+            (
+                out[0].text.as_str(),
+                out[0].sender_id.as_str(),
+                out[0].key_version
+            ),
+            ("the quiet part", MEMBER, 2)
+        );
     }
 
     /// The whole attack: a bot that acts on a forged row can be told to do
@@ -307,7 +344,10 @@ mod tests {
         let f = fixture(author.public_key).await;
         let key = random_bytes::<32>();
         f.grant(2, &key);
-        f.row(8, sealed(CHANNEL, "transfer everything", &key, 2, &member()));
+        f.row(
+            8,
+            sealed(CHANNEL, "transfer everything", &key, 2, &member()),
+        );
         assert!(f.reader.since(0).await.unwrap().is_empty());
     }
 
@@ -318,7 +358,10 @@ mod tests {
         let two = random_bytes::<32>();
         f.grant(2, &two);
         f.row(9, sealed(CHANNEL, "before the rotation", &two, 2, &author));
-        f.row(10, sealed(CHANNEL, "after it", &random_bytes::<32>(), 3, &author));
+        f.row(
+            10,
+            sealed(CHANNEL, "after it", &random_bytes::<32>(), 3, &author),
+        );
         f.row(11, sealed(CHANNEL, "and after that", &two, 2, &author));
         assert_eq!(Fixture::ids(&f.reader.since(0).await.unwrap()), [9]);
     }
@@ -331,8 +374,11 @@ mod tests {
         let f = fixture(author.public_key).await;
         let key = random_bytes::<32>();
         f.grant(2, &key);
-        f.row(12, json!({ "sender_id": null, "ciphertext": "build passed", "nonce": "",
-                          "signature": null, "key_version": 0 }));
+        f.row(
+            12,
+            json!({ "sender_id": null, "ciphertext": "build passed", "nonce": "",
+                          "signature": null, "key_version": 0 }),
+        );
         f.row(13, sealed(CHANNEL, "still reading", &key, 2, &author));
         assert_eq!(Fixture::ids(&f.reader.since(0).await.unwrap()), [13]);
     }
@@ -353,7 +399,12 @@ mod tests {
             f.row(id, sealed(CHANNEL, &format!("m{id}"), &key, 2, &author));
         }
         assert_eq!(f.reader.since(0).await.unwrap().len(), 5);
-        let fetches = f.server.paths().iter().filter(|p| p.contains("/channel_keyring?")).count();
+        let fetches = f
+            .server
+            .paths()
+            .iter()
+            .filter(|p| p.contains("/channel_keyring?"))
+            .count();
         assert_eq!(fetches, 1);
     }
 }

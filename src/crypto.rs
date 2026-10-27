@@ -78,10 +78,18 @@ impl ServerIdentity {
 /// from who it claims, and acting on one is the whole attack, so anything
 /// malformed is simply false.
 pub fn verify_signature(payload: &str, signature_base64: &str, public_key: &[u8]) -> bool {
-    let Ok(key_bytes) = <[u8; 32]>::try_from(public_key) else { return false };
-    let Ok(key) = VerifyingKey::from_bytes(&key_bytes) else { return false };
-    let Some(sig_bytes) = unb64(signature_base64) else { return false };
-    let Ok(sig) = Signature::from_slice(&sig_bytes) else { return false };
+    let Ok(key_bytes) = <[u8; 32]>::try_from(public_key) else {
+        return false;
+    };
+    let Ok(key) = VerifyingKey::from_bytes(&key_bytes) else {
+        return false;
+    };
+    let Some(sig_bytes) = unb64(signature_base64) else {
+        return false;
+    };
+    let Ok(sig) = Signature::from_slice(&sig_bytes) else {
+        return false;
+    };
     key.verify(payload.as_bytes(), &sig).is_ok()
 }
 
@@ -215,7 +223,10 @@ mod tests {
         let identity = derive_server_identity(&[7; 32], "rift.example", Some("s"));
         let (message, signature) = sign_siws(&identity);
         let lines: Vec<&str> = message.lines().collect();
-        assert_eq!(lines[0], "localhost wants you to sign in with your Solana account:");
+        assert_eq!(
+            lines[0],
+            "localhost wants you to sign in with your Solana account:"
+        );
         assert_eq!(lines[1], to_base58(&identity.public_key));
         assert_eq!(lines[5], "URI: http://localhost");
         assert!(lines[8].starts_with("Nonce: "));

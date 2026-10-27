@@ -34,11 +34,15 @@ impl TestServer {
         let seen = requests.clone();
         tokio::spawn(async move {
             loop {
-                let Ok((mut tcp, _)) = listener.accept().await else { return };
+                let Ok((mut tcp, _)) = listener.accept().await else {
+                    return;
+                };
                 let handler = handler.clone();
                 let seen = seen.clone();
                 tokio::spawn(async move {
-                    let Some(request) = read_request(&mut tcp).await else { return };
+                    let Some(request) = read_request(&mut tcp).await else {
+                        return;
+                    };
                     seen.lock().unwrap().push(request.clone());
                     let (status, body) = handler(&request);
                     let body = body.to_string();
@@ -60,7 +64,12 @@ impl TestServer {
     }
 
     pub fn paths(&self) -> Vec<String> {
-        self.requests.lock().unwrap().iter().map(|r| r.path.clone()).collect()
+        self.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| r.path.clone())
+            .collect()
     }
 }
 
@@ -105,7 +114,9 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use serde_json::json;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use crate::crypto::{ServerIdentity, b64, derive_server_identity, hmac, random_bytes, signed_payload};
+use crate::crypto::{
+    ServerIdentity, b64, derive_server_identity, hmac, random_bytes, signed_payload,
+};
 
 /// A member with a signing key of their own.
 pub(crate) fn member() -> ServerIdentity {
@@ -113,7 +124,13 @@ pub(crate) fn member() -> ServerIdentity {
 }
 
 /// A body sealed under `key` and signed by `signer`, as a row's fields.
-pub(crate) fn sealed(context: &str, text: &str, key: &[u8; 32], version: i64, signer: &ServerIdentity) -> Value {
+pub(crate) fn sealed(
+    context: &str,
+    text: &str,
+    key: &[u8; 32],
+    version: i64,
+    signer: &ServerIdentity,
+) -> Value {
     let (ciphertext, nonce) = crate::sealed::seal(text, key);
     json!({
         "ciphertext": ciphertext,

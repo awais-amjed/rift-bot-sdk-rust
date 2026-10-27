@@ -41,8 +41,14 @@ struct Server {
 
 impl Server {
     fn from_env() -> Self {
-        let var = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set; see the module doc"));
-        Self { url: var("LIVEKIT_URL"), key: var("LIVEKIT_API_KEY"), secret: var("LIVEKIT_API_SECRET") }
+        let var = |name: &str| {
+            std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set; see the module doc"))
+        };
+        Self {
+            url: var("LIVEKIT_URL"),
+            key: var("LIVEKIT_API_KEY"),
+            secret: var("LIVEKIT_API_SECRET"),
+        }
     }
 
     /// A bot's token publishes and does not subscribe, as `get_channel_token`
@@ -96,22 +102,34 @@ fn levels(data: &[i16]) -> (f64, f64) {
 #[ignore = "needs a LiveKit server"]
 async fn live_a_bot_plays_into_a_call_in_stereo() {
     let server = Server::from_env();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
     let room = format!("rift-bot-test-{now}");
 
-    let bot = connect("channel", &server.url, &server.token(&room, "bot", false), &media_key())
-        .await
-        .expect("the bot joins");
+    let bot = connect(
+        "channel",
+        &server.url,
+        &server.token(&room, "bot", false),
+        &media_key(),
+    )
+    .await
+    .expect("the bot joins");
     assert!(!bot.can_hear(), "a bot's token here does not subscribe");
 
     // A listener holding the bot's key in slot 0, where members read it.
     let key_provider = KeyProvider::with_shared_key(KeyProviderOptions::default(), media_key());
     key_provider.set_shared_key(media_key(), BOT_KEY_INDEX);
     let mut options = RoomOptions::default();
-    options.encryption = Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
-    let (listener, mut events) = Room::connect(&server.url, &server.token(&room, "listener", true), options)
-        .await
-        .expect("the listener joins");
+    options.encryption = Some(E2eeOptions {
+        encryption_type: EncryptionType::Gcm,
+        key_provider,
+    });
+    let (listener, mut events) =
+        Room::connect(&server.url, &server.token(&room, "listener", true), options)
+            .await
+            .expect("the listener joins");
 
     let pcm = tones();
     let bot = std::sync::Arc::new(bot);
@@ -120,8 +138,10 @@ async fn live_a_bot_plays_into_a_call_in_stereo() {
 
     let track = timeout(Duration::from_secs(20), async {
         loop {
-            if let RoomEvent::TrackSubscribed { track: RemoteTrack::Audio(track), .. } =
-                events.recv().await.expect("room events")
+            if let RoomEvent::TrackSubscribed {
+                track: RemoteTrack::Audio(track),
+                ..
+            } = events.recv().await.expect("room events")
             {
                 break track;
             }
@@ -148,10 +168,15 @@ async fn live_a_bot_plays_into_a_call_in_stereo() {
     })
     .await;
     let fmtp = bot.opus_fmtp().await;
-    println!("sent with {fmtp:?}; {loud} loud frames, {left_only} left only, {right_only} right only");
+    println!(
+        "sent with {fmtp:?}; {loud} loud frames, {left_only} left only, {right_only} right only"
+    );
 
     bot.stop();
-    playing.await.unwrap().expect("play ends cleanly when stopped");
+    playing
+        .await
+        .unwrap()
+        .expect("play ends cleanly when stopped");
     bot.leave().await.ok();
     listener.close().await.ok();
 

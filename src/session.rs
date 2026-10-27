@@ -95,7 +95,8 @@ fn http_client() -> reqwest::Client {
 }
 
 fn host_of(url: &str) -> Result<String> {
-    let parsed = url::Url::parse(url).map_err(|e| BotError::new(format!("not a URL: {url}: {e}")))?;
+    let parsed =
+        url::Url::parse(url).map_err(|e| BotError::new(format!("not a URL: {url}: {e}")))?;
     parsed
         .host_str()
         .map(str::to_string)
@@ -116,7 +117,10 @@ impl BotSession {
                 // Per host, not per server, and pinned at v1.
                 chat_identity: derive_chat_identity(seed, &host),
                 http: http_client(),
-                auth: RwLock::new(Auth { anon_key: anon_key.to_string(), ..Auth::default() }),
+                auth: RwLock::new(Auth {
+                    anon_key: anon_key.to_string(),
+                    ..Auth::default()
+                }),
                 #[cfg(feature = "voice")]
                 voice_places: Default::default(),
             }),
@@ -134,8 +138,14 @@ impl BotSession {
         drop(auth);
         let mut inner = Arc::try_unwrap(session.inner).ok().unwrap();
         crate::tls::ensure_provider();
-        inner.http = reqwest::Client::builder().no_proxy().timeout(REQUEST_TIMEOUT).build().unwrap();
-        Self { inner: Arc::new(inner) }
+        inner.http = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .unwrap();
+        Self {
+            inner: Arc::new(inner),
+        }
     }
 
     pub fn from_config(config: &SessionConfig, seed: &[u8; 32]) -> Result<Self> {
@@ -185,9 +195,9 @@ impl BotSession {
                 }),
             )
             .await?;
-        let anon_key = context["supabase_key"]
-            .as_str()
-            .ok_or_else(|| BotError::new("register returned no anon key, so no table is readable"))?;
+        let anon_key = context["supabase_key"].as_str().ok_or_else(|| {
+            BotError::new("register returned no anon key, so no table is readable")
+        })?;
         session.inner.auth.write().unwrap().anon_key = anon_key.to_string();
         // The profile row exists now, and the claims a policy reads come from
         // a fresh token.
@@ -240,7 +250,8 @@ impl BotSession {
     }
 
     pub(crate) fn require_user_id(&self) -> Result<String> {
-        self.user_id().ok_or_else(|| BotError::new("not signed in yet: call login first"))
+        self.user_id()
+            .ok_or_else(|| BotError::new("not signed in yet: call login first"))
     }
 
     /// Sign in, or refresh a session that has expired.
@@ -251,7 +262,10 @@ impl BotSession {
     pub async fn login(&self) -> Result<()> {
         let (message, signature) = sign_siws(&self.inner.identity);
         let data = self
-            .call_function("login", &json!({ "message": message, "signature": signature }))
+            .call_function(
+                "login",
+                &json!({ "message": message, "signature": signature }),
+            )
             .await?;
         let token = data["access_token"]
             .as_str()
@@ -281,7 +295,11 @@ impl BotSession {
     /// Publish what this bot answers to, and what it does with what it is given.
     pub async fn publish_manifest(&self, manifest: &Value) -> Result<()> {
         let me = self.require_user_id()?;
-        self.patch(&format!("users?id=eq.{me}"), &json!({ "manifest": manifest })).await
+        self.patch(
+            &format!("users?id=eq.{me}"),
+            &json!({ "manifest": manifest }),
+        )
+        .await
     }
 
     fn rest(&self, method: Method, query: &str) -> RequestBuilder {
@@ -300,13 +318,23 @@ impl BotSession {
     }
 
     pub async fn insert(&self, table: &str, row: &Value) -> Result<()> {
-        let req = self.rest(Method::POST, table).header("Prefer", "return=minimal").json(row);
+        let req = self
+            .rest(Method::POST, table)
+            .header("Prefer", "return=minimal")
+            .json(row);
         send(req, table).await.map(drop)
     }
 
     /// An insert that hands the row back: needed only where the id matters.
-    pub async fn insert_returning<T: DeserializeOwned>(&self, table: &str, row: &Value) -> Result<Vec<T>> {
-        let req = self.rest(Method::POST, table).header("Prefer", "return=representation").json(row);
+    pub async fn insert_returning<T: DeserializeOwned>(
+        &self,
+        table: &str,
+        row: &Value,
+    ) -> Result<Vec<T>> {
+        let req = self
+            .rest(Method::POST, table)
+            .header("Prefer", "return=representation")
+            .json(row);
         json_of(send(req, table).await?, table).await
     }
 
@@ -316,20 +344,30 @@ impl BotSession {
     pub async fn rpc<T: DeserializeOwned>(&self, name: &str, params: &Value) -> Result<Option<T>> {
         let path = format!("rpc/{name}");
         let res = send(self.rest(Method::POST, &path).json(params), &path).await?;
-        let text = res.text().await.map_err(|e| BotError::new(format!("{path}: {e}")))?;
+        let text = res
+            .text()
+            .await
+            .map_err(|e| BotError::new(format!("{path}: {e}")))?;
         if text.is_empty() {
             return Ok(None);
         }
-        serde_json::from_str(&text).map(Some).map_err(|e| BotError::new(format!("{path}: {e}")))
+        serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|e| BotError::new(format!("{path}: {e}")))
     }
 
     pub async fn patch(&self, query: &str, body: &Value) -> Result<()> {
-        let req = self.rest(Method::PATCH, query).header("Prefer", "return=minimal").json(body);
+        let req = self
+            .rest(Method::PATCH, query)
+            .header("Prefer", "return=minimal")
+            .json(body);
         send(req, query).await.map(drop)
     }
 
     pub async fn remove(&self, query: &str) -> Result<()> {
-        let req = self.rest(Method::DELETE, query).header("Prefer", "return=minimal");
+        let req = self
+            .rest(Method::DELETE, query)
+            .header("Prefer", "return=minimal");
         send(req, query).await.map(drop)
     }
 
@@ -354,7 +392,10 @@ impl BotSession {
         let auth = self.inner.auth.read().unwrap();
         self.inner
             .http
-            .request(method, format!("{}/storage/v1/object/{bucket}/{path}", self.inner.url))
+            .request(
+                method,
+                format!("{}/storage/v1/object/{bucket}/{path}", self.inner.url),
+            )
             .header("apikey", &auth.anon_key)
             .bearer_auth(auth.token.as_deref().unwrap_or(""))
     }
@@ -362,7 +403,13 @@ impl BotSession {
     /// Put a file in one of this server's Storage buckets. Refuses to
     /// overwrite: a name is used once, so a client holding the old picture is
     /// never shown a different one under it.
-    pub async fn upload_object(&self, bucket: &str, path: &str, bytes: Vec<u8>, content_type: &str) -> Result<()> {
+    pub async fn upload_object(
+        &self,
+        bucket: &str,
+        path: &str,
+        bytes: Vec<u8>,
+        content_type: &str,
+    ) -> Result<()> {
         let req = self
             .storage(Method::POST, bucket, path)
             .header("Content-Type", content_type)
@@ -373,13 +420,22 @@ impl BotSession {
 
     /// Delete a file this bot uploaded. Storage lets an uploader remove its own.
     pub async fn remove_object(&self, bucket: &str, path: &str) -> Result<()> {
-        send(self.storage(Method::DELETE, bucket, path), "storage").await.map(drop)
+        send(self.storage(Method::DELETE, bucket, path), "storage")
+            .await
+            .map(drop)
     }
 
     /// Call an edge function. They answer 200 with `{success, data, error}`.
     pub async fn call_function(&self, name: &str, body: &Value) -> Result<Value> {
         let token = self.token();
-        call_function_with(&self.inner.http, &self.inner.url, token.as_deref(), name, body).await
+        call_function_with(
+            &self.inner.http,
+            &self.inner.url,
+            token.as_deref(),
+            name,
+            body,
+        )
+        .await
     }
 }
 
@@ -394,12 +450,24 @@ async fn call_function_with(
     if let Some(token) = token {
         req = req.bearer_auth(token);
     }
-    let res = req.send().await.map_err(|e| BotError::new(format!("{name}: {}", plain(e))))?;
+    let res = req
+        .send()
+        .await
+        .map_err(|e| BotError::new(format!("{name}: {}", plain(e))))?;
     let status = res.status().as_u16();
-    let json: Value = res.json().await.map_err(|e| BotError::new(format!("{name}: {}", plain(e))))?;
+    let json: Value = res
+        .json()
+        .await
+        .map_err(|e| BotError::new(format!("{name}: {}", plain(e))))?;
     if json["success"] != Value::Bool(true) {
-        let reason = json["error"].as_str().map(str::to_string).unwrap_or_else(|| status.to_string());
-        return Err(BotError::with_status(format!("{name} failed: {reason}"), status));
+        let reason = json["error"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| status.to_string());
+        return Err(BotError::with_status(
+            format!("{name} failed: {reason}"),
+            status,
+        ));
     }
     Ok(json["data"].clone())
 }
@@ -407,11 +475,18 @@ async fn call_function_with(
 /// A reqwest error without the URL in it: a query string can carry ids, and
 /// the path is said by whoever reports it.
 fn plain(error: reqwest::Error) -> String {
-    if error.is_timeout() { "timed out".to_string() } else { error.without_url().to_string() }
+    if error.is_timeout() {
+        "timed out".to_string()
+    } else {
+        error.without_url().to_string()
+    }
 }
 
 async fn send(req: RequestBuilder, what: &str) -> Result<Response> {
-    let res = req.send().await.map_err(|e| BotError::new(format!("{}: {}", path_of(what), plain(e))))?;
+    let res = req
+        .send()
+        .await
+        .map_err(|e| BotError::new(format!("{}: {}", path_of(what), plain(e))))?;
     if res.status().is_success() {
         return Ok(res);
     }
@@ -421,7 +496,9 @@ async fn send(req: RequestBuilder, what: &str) -> Result<Response> {
 }
 
 async fn json_of<T: DeserializeOwned>(res: Response, what: &str) -> Result<T> {
-    res.json().await.map_err(|e| BotError::new(format!("{}: {}", path_of(what), plain(e))))
+    res.json()
+        .await
+        .map_err(|e| BotError::new(format!("{}: {}", path_of(what), plain(e))))
 }
 
 fn path_of(query: &str) -> &str {
@@ -455,7 +532,10 @@ mod tests {
 
     #[test]
     fn the_host_is_the_host_only() {
-        assert_eq!(host_of("https://chat.example.org:8443/rift").unwrap(), "chat.example.org");
+        assert_eq!(
+            host_of("https://chat.example.org:8443/rift").unwrap(),
+            "chat.example.org"
+        );
     }
 
     #[test]

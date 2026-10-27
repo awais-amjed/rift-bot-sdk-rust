@@ -26,7 +26,10 @@ fn make(server_url: &str, invite_code: &str) -> Option<Invite> {
     if url.is_empty() || code.is_empty() {
         return None;
     }
-    Some(Invite { server_url: url.to_string(), invite_code: code.to_string() })
+    Some(Invite {
+        server_url: url.to_string(),
+        invite_code: code.to_string(),
+    })
 }
 
 /// Parse any of the three shapes. `None` if it is not a complete invite.

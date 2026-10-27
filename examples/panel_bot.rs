@@ -25,8 +25,16 @@ fn draw(poll: &Poll) -> Vec<Block> {
         heading(&poll.question),
         fields(&[("Yes", &poll.yes.to_string()), ("No", &poll.no.to_string())]),
         progress(
-            if total == 0 { 0.0 } else { poll.yes as f64 / total as f64 },
-            &if total == 1 { "1 vote".to_string() } else { format!("{total} votes") },
+            if total == 0 {
+                0.0
+            } else {
+                poll.yes as f64 / total as f64
+            },
+            &if total == 1 {
+                "1 vote".to_string()
+            } else {
+                format!("{total} votes")
+            },
         ),
         actions(&[button("Yes", "yes").primary(), button("No", "no")]),
     ]
@@ -53,11 +61,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         async move {
             // A press, not a command: `panel_id` is the row to redraw.
             if message.is_action() {
-                let Some(id) = message.panel_id else { return Ok(()) };
+                let Some(id) = message.panel_id else {
+                    return Ok(());
+                };
                 let blocks = {
                     let mut polls = polls.lock().unwrap();
-                    let Some(poll) = polls.get_mut(&id) else { return Ok(()) };
-                    if message.action_id.as_deref() == Some("yes") { poll.yes += 1 } else { poll.no += 1 }
+                    let Some(poll) = polls.get_mut(&id) else {
+                        return Ok(());
+                    };
+                    if message.action_id.as_deref() == Some("yes") {
+                        poll.yes += 1
+                    } else {
+                        poll.no += 1
+                    }
                     draw(poll)
                 };
                 return bot.edit_panel(id, &blocks).await;
@@ -69,8 +85,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "" => "Yes or no?".to_string(),
                 text => text.to_string(),
             };
-            let poll = Poll { question, yes: 0, no: 0 };
-            if let Some(id) = bot.panel(&message.channel_id, &draw(&poll), &PanelOptions::default()).await? {
+            let poll = Poll {
+                question,
+                yes: 0,
+                no: 0,
+            };
+            if let Some(id) = bot
+                .panel(&message.channel_id, &draw(&poll), &PanelOptions::default())
+                .await?
+            {
                 polls.lock().unwrap().insert(id, poll);
             }
             Ok::<(), rift_bot::BotError>(())

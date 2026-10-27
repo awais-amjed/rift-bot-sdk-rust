@@ -505,6 +505,35 @@ fn path_of(query: &str) -> &str {
     query.split('?').next().unwrap_or(query)
 }
 
+/// How long before a session runs out a bot signs in again.
+const RENEW_EARLY: Duration = Duration::from_secs(5 * 60);
+
+/// The soonest a renewal is tried again: never a tight loop.
+const RENEW_SOONEST: Duration = Duration::from_secs(30);
+
+/// How long from `now` (seconds since the epoch) until the session in `token`
+/// should be renewed.
+///
+/// Ahead of time, because Realtime closes a topic the second its token runs
+/// out: a bot that waited for a refusal was already offline when it got one.
+pub(crate) fn renew_delay(token: &str, now: f64) -> Duration {
+    let exp = token
+        .split('.')
+        .nth(1)
+        .and_then(|p| URL_SAFE_NO_PAD.decode(p.trim_end_matches('=')).ok())
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|claims| claims["exp"].as_f64());
+    let Some(exp) = exp else {
+        return RENEW_SOONEST;
+    };
+    let wait = exp - RENEW_EARLY.as_secs_f64() - now;
+    if wait.is_finite() && wait > RENEW_SOONEST.as_secs_f64() {
+        Duration::from_secs_f64(wait)
+    } else {
+        RENEW_SOONEST
+    }
+}
+
 /// The `sub` claim: this bot's user id, which `users.id` is.
 fn subject_of(token: &str) -> Result<String> {
     let payload = token
@@ -528,6 +557,31 @@ mod tests {
         let claims = URL_SAFE_NO_PAD.encode(br#"{"sub":"abc-123","role":"authenticated"}"#);
         assert_eq!(subject_of(&format!("x.{claims}.y")).unwrap(), "abc-123");
         assert!(subject_of("nonsense").is_err());
+    }
+
+    fn token_expiring(exp: f64) -> String {
+        let claims = URL_SAFE_NO_PAD.encode(format!(r#"{{"sub":"bot-1","exp":{exp}}}"#));
+        format!("x.{claims}.y")
+    }
+
+    /// Realtime closes a topic the second its token runs out, so a bot that
+    /// waits for a refusal before signing in again has already gone offline.
+    #[test]
+    fn a_session_is_renewed_five_minutes_before_it_runs_out() {
+        let now = 1_800_000_000.0;
+        assert_eq!(
+            renew_delay(&token_expiring(now + 3600.0), now),
+            Duration::from_secs(3600 - 300)
+        );
+    }
+
+    #[test]
+    fn a_session_nearly_out_is_renewed_soon_never_in_a_tight_loop() {
+        let now = 1_800_000_000.0;
+        let soonest = Duration::from_secs(30);
+        assert_eq!(renew_delay(&token_expiring(now + 60.0), now), soonest);
+        assert_eq!(renew_delay(&token_expiring(now - 60.0), now), soonest);
+        assert_eq!(renew_delay("nonsense", now), soonest);
     }
 
     #[test]

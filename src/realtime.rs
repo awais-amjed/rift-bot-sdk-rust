@@ -72,6 +72,10 @@ enum Incoming {
     /// A refused join answers here rather than closing the socket: the topic
     /// is simply never joined, which otherwise looks like a quiet server.
     Refused(String),
+    /// The server let go of the topic and kept the socket: its token ran out
+    /// (`phx_close`), the topic's process failed (`phx_error`), or something
+    /// was sent to a topic already closed ("unmatched topic").
+    Closed,
     Nothing,
 }
 
@@ -125,8 +129,8 @@ impl Protocol {
         json!({ "topic": "phoenix", "event": "heartbeat", "payload": {}, "ref": self.take_ref() })
     }
 
-    /// A bot's token expires within the hour and it signs in again; the server
-    /// closes a topic whose token has run out, so the new one has to reach it.
+    /// A bot's token expires within the hour and it signs in again; a topic
+    /// still joined is handed the new one.
     fn access_token(&mut self, token: &str) -> Value {
         json!({
             "topic": self.topic,
@@ -167,13 +171,15 @@ impl Protocol {
                 }),
                 None => Incoming::Nothing,
             },
+            Some("phx_close" | "phx_error") => Incoming::Closed,
             Some("phx_reply") => match payload["status"].as_str() {
                 Some("ok") if frame["ref"].as_str() == self.join_ref.as_deref() => Incoming::Joined,
-                Some("error") => Incoming::Refused(match &payload["response"]["reason"] {
-                    Value::Null => "refused".to_string(),
-                    Value::String(reason) => reason.clone(),
-                    reason => reason.to_string(),
-                }),
+                Some("error") => match &payload["response"]["reason"] {
+                    Value::String(reason) if reason == "unmatched topic" => Incoming::Closed,
+                    Value::Null => Incoming::Refused("refused".to_string()),
+                    Value::String(reason) => Incoming::Refused(reason.clone()),
+                    reason => Incoming::Refused(reason.to_string()),
+                },
                 _ => Incoming::Nothing,
             },
             _ => Incoming::Nothing,
@@ -215,8 +221,8 @@ impl RealtimeListener {
         self.connected.load(Ordering::Relaxed)
     }
 
-    /// Carry on with a new JWT. Sent to the topic if it is joined, and used by
-    /// the next join if it is not.
+    /// Carry on with a new JWT. Sent to the topic if it is joined; a topic the
+    /// server closed when the old one ran out is joined again with it.
     pub fn set_token(&self, token: &str) {
         self.token.send_replace(token.to_string());
     }
@@ -289,8 +295,12 @@ async fn session(
         .send(Message::text(join.to_string()))
         .await
         .map_err(|e| fail(&e))?;
-    connected.store(true, Ordering::Relaxed);
 
+    // Whether the server accepted the latest join and has not let go since,
+    // and when to join again after it did: the same backoff a dropped socket
+    // waits, with whatever token is newest by then.
+    let mut joined = false;
+    let mut rejoin: Option<tokio::time::Instant> = None;
     let mut heartbeat =
         tokio::time::interval_at(tokio::time::Instant::now() + HEARTBEAT, HEARTBEAT);
     loop {
@@ -300,11 +310,23 @@ async fn session(
                 write.send(Message::text(protocol.heartbeat().to_string())).await.map_err(|e| fail(&e))?;
                 continue;
             }
+            _ = tokio::time::sleep_until(rejoin.unwrap_or_else(tokio::time::Instant::now)), if rejoin.is_some() => {
+                rejoin = None;
+                let join = protocol.join(&token.borrow_and_update());
+                write.send(Message::text(join.to_string())).await.map_err(|e| fail(&e))?;
+                continue;
+            }
             changed = token.changed() => {
                 if changed.is_err() {
                     return Ok(()); // The listener was dropped.
                 }
-                let message = protocol.access_token(&token.borrow_and_update());
+                let token = token.borrow_and_update().clone();
+                let message = if joined {
+                    protocol.access_token(&token)
+                } else {
+                    rejoin = None;
+                    protocol.join(&token)
+                };
                 write.send(Message::text(message.to_string())).await.map_err(|e| fail(&e))?;
                 continue;
             }
@@ -323,6 +345,9 @@ async fn session(
                 }
             }
             Incoming::Joined => {
+                joined = true;
+                *attempt = 0;
+                connected.store(true, Ordering::Relaxed);
                 if let Some(track) = protocol.track() {
                     write
                         .send(Message::text(track.to_string()))
@@ -335,6 +360,15 @@ async fn session(
                     "realtime: {}: {reason}",
                     options.topic
                 ))));
+            }
+            Incoming::Closed => {
+                joined = false;
+                connected.store(false, Ordering::Relaxed);
+                if rejoin.is_none() {
+                    rejoin =
+                        Some(tokio::time::Instant::now() + RETRY[(*attempt).min(RETRY.len() - 1)]);
+                    *attempt += 1;
+                }
             }
             Incoming::Nothing => {}
         }
@@ -417,6 +451,29 @@ mod tests {
         assert_eq!(track["payload"]["payload"]["userId"], "u");
     }
 
+    /// Realtime closes a topic the second its token runs out ("Token has
+    /// expired", then `phx_close`) and keeps the socket; anything sent to the
+    /// topic after that is answered "unmatched topic". All three mean the
+    /// topic is gone, not that something was refused.
+    #[test]
+    fn a_topic_the_server_let_go_of_reads_as_closed() {
+        let p = Protocol::new("user:abc", None);
+        let on_topic = |event: &str, payload: Value| {
+            frame(
+                json!({ "topic": "realtime:user:abc", "event": event, "ref": null, "payload": payload }),
+            )
+        };
+        assert_eq!(p.read(&on_topic("phx_close", json!({}))), Incoming::Closed);
+        assert_eq!(p.read(&on_topic("phx_error", json!({}))), Incoming::Closed);
+        assert_eq!(
+            p.read(&on_topic(
+                "phx_reply",
+                json!({ "status": "error", "response": { "reason": "unmatched topic" } })
+            )),
+            Incoming::Closed
+        );
+    }
+
     #[test]
     fn a_listener_without_presence_never_tracks() {
         assert!(Protocol::new("user:abc", None).track().is_none());
@@ -453,8 +510,13 @@ mod tests {
                 let join: Value =
                     serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap())
                         .unwrap();
-                seen_tx.send(join).unwrap();
+                seen_tx.send(join.clone()).unwrap();
                 if round == 0 {
+                    let ok = json!({
+                        "topic": "realtime:user:abc", "event": "phx_reply", "ref": join["ref"],
+                        "payload": { "status": "ok", "response": {} },
+                    });
+                    ws.send(Message::text(ok.to_string())).await.unwrap();
                     let broadcast = json!({
                         "topic": "realtime:user:abc", "event": "broadcast",
                         "payload": { "event": "new_message", "payload": { "id": 1 } },
@@ -494,6 +556,79 @@ mod tests {
             .unwrap();
         assert_eq!(rejoin["event"], "phx_join");
         assert_eq!(rejoin["payload"]["access_token"], "new");
+        rt.stop();
+    }
+
+    /// What took a live bot offline an hour after every start: the server
+    /// closed its topic when the token ran out, kept the socket, and nothing
+    /// joined the topic again. Here it is joined again on the same socket,
+    /// and a token renewed while it is closed goes out as a join.
+    #[tokio::test]
+    async fn a_topic_the_server_closes_is_joined_again() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (seen_tx, mut seen) = mpsc::unbounded_channel::<Value>();
+
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            let topic = "realtime:user:abc";
+            let mut close = true;
+            while let Some(Ok(message)) = ws.next().await {
+                let Ok(text) = message.to_text() else {
+                    continue;
+                };
+                let frame: Value = serde_json::from_str(text).unwrap();
+                if frame["event"] == "heartbeat" {
+                    continue;
+                }
+                seen_tx.send(frame.clone()).unwrap();
+                if frame["event"] != "phx_join" {
+                    continue;
+                }
+                let ok = json!({ "topic": topic, "event": "phx_reply", "ref": frame["ref"],
+                                 "payload": { "status": "ok", "response": {} } });
+                ws.send(Message::text(ok.to_string())).await.unwrap();
+                if close {
+                    close = false;
+                    for event in ["system", "phx_close"] {
+                        let f =
+                            json!({ "topic": topic, "event": event, "ref": null, "payload": {} });
+                        ws.send(Message::text(f.to_string())).await.unwrap();
+                    }
+                }
+            }
+        });
+
+        let (rt, _heard) = RealtimeListener::start(RealtimeOptions {
+            url: format!("http://127.0.0.1:{port}"),
+            anon_key: "anon".into(),
+            token: "old".into(),
+            topic: "user:abc".into(),
+            presence: None,
+        });
+        let next = async |seen: &mut mpsc::UnboundedReceiver<Value>| {
+            tokio::time::timeout(Duration::from_secs(5), seen.recv())
+                .await
+                .expect("nothing sent")
+                .unwrap()
+        };
+
+        assert_eq!(next(&mut seen).await["event"], "phx_join");
+        let rejoin = next(&mut seen).await;
+        assert_eq!(
+            rejoin["event"], "phx_join",
+            "joined again, on the same socket"
+        );
+        assert_eq!(rejoin["payload"]["access_token"], "old");
+
+        // Joined again: a renewed token now goes out as an update.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(rt.connected());
+        rt.set_token("new");
+        let renewed = next(&mut seen).await;
+        assert_eq!(renewed["event"], "access_token");
+        assert_eq!(renewed["payload"]["access_token"], "new");
         rt.stop();
     }
 }

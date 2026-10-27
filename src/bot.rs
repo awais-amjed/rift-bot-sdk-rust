@@ -349,6 +349,25 @@ impl Bot {
         });
         self.inner.running.lock().unwrap().tasks.push(poller);
 
+        // Sign in again before the session runs out, so the sockets' topics
+        // never close under it. Waits again from whatever token is newest, a
+        // 401's renewal included; a failed one is tried again shortly, and the
+        // poll's 401 still backs it up.
+        let bot = self.clone();
+        let renewer = tokio::spawn(async move {
+            loop {
+                let token = bot.inner.session.token().unwrap_or_default();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0.0, |d| d.as_secs_f64());
+                tokio::time::sleep(crate::session::renew_delay(&token, now)).await;
+                if let Err(error) = bot.renew_session().await {
+                    bot.report(error);
+                }
+            }
+        });
+        self.inner.running.lock().unwrap().tasks.push(renewer);
+
         if self.inner.use_realtime {
             self.start_realtime();
             self.start_presence().await?;
@@ -366,10 +385,11 @@ impl Bot {
     /// Sign in again after the session expired, and hand the new token to the
     /// realtime sockets.
     ///
-    /// The poll does this itself on a 401. Call it when one of *your* calls
-    /// gets one (a panel redraw an hour into a song) and retry the call.
-    /// `session().login()` alone would leave the sockets on the old token,
-    /// and the server closes a topic whose token runs out.
+    /// [`listen`](Self::listen) does this itself five minutes before the
+    /// session runs out, and the poll on a 401. Call it when one of *your*
+    /// calls gets one (the machine slept through the renewal) and retry the
+    /// call. `session().login()` alone would leave the sockets on the old
+    /// token, and the server closes a topic whose token runs out.
     pub async fn renew_session(&self) -> Result<()> {
         self.inner.session.login().await?;
         let token = self.inner.session.token().unwrap_or_default();

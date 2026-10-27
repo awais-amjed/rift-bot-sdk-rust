@@ -1,6 +1,6 @@
 [package]
 name = "rift-bot"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "Write a bot for Rift in Rust: commands, replies, live panels, DMs, and voice"
 license = "Apache-2.0"

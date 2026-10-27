@@ -24,7 +24,10 @@ use crate::image::image_info;
 use crate::panel::Block;
 use crate::realtime::{Heard, RealtimeListener, RealtimeOptions};
 use crate::session::BotSession;
-use crate::suggest::{SUGGEST_EVENT, SUGGESTIONS_EVENT, SuggestRequest, Suggestion, parse_suggest_request, suggestions_payload};
+use crate::suggest::{
+    SUGGEST_EVENT, SUGGESTIONS_EVENT, SuggestRequest, Suggestion, parse_suggest_request,
+    suggestions_payload,
+};
 
 /// One command, or one press, as the bot receives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,24 +55,44 @@ impl BotMessage {
     /// The verb, lower-cased and without the slash: `/Play a song` → `play`.
     pub fn command(&self) -> String {
         let body = self.text.trim();
-        let Some(rest) = body.strip_prefix('/') else { return String::new() };
-        rest.split(char::is_whitespace).next().unwrap_or("").to_lowercase()
+        let Some(rest) = body.strip_prefix('/') else {
+            return String::new();
+        };
+        rest.split(char::is_whitespace)
+            .next()
+            .unwrap_or("")
+            .to_lowercase()
     }
 
     /// Everything after the verb, trimmed. Empty for a bare command.
     pub fn args(&self) -> &str {
         let body = self.text.trim();
-        body.find(char::is_whitespace).map_or("", |at| body[at..].trim())
+        body.find(char::is_whitespace)
+            .map_or("", |at| body[at..].trim())
     }
 }
 
-/// Who a panel shows to.
+/// Who a panel shows to, and whether it is the bot's current one.
 #[derive(Debug, Clone, Default)]
 pub struct PanelOptions {
     /// A member's user id: only they see the panel. Check a press on it came
     /// from them all the same: nothing stops another member naming a panel id
     /// they cannot see.
     pub only_for: Option<String>,
+    /// This is the bot's current panel, a player while it plays. Rift draws it
+    /// in the bar above the channel's message box rather than in the history,
+    /// while the bot is connected, so it does not scroll away. Redraw with
+    /// [`Bot::edit_panel_live`] to keep it there. WIRE.md §5.
+    pub live: bool,
+}
+
+/// A panel row's `blocks` column: `live` only when it is.
+fn panel_blocks(blocks: &[Block], live: bool) -> Value {
+    if live {
+        json!({ "v": 1, "live": true, "blocks": blocks })
+    } else {
+        json!({ "v": 1, "blocks": blocks })
+    }
 }
 
 /// What a handler may return: nothing, or a result whose error is reported
@@ -241,7 +264,8 @@ impl Bot {
         F: Fn(SuggestRequest) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Vec<Suggestion>> + Send + 'static,
     {
-        *self.inner.on_suggest.lock().unwrap() = Some(Arc::new(move |request| Box::pin(handler(request))));
+        *self.inner.on_suggest.lock().unwrap() =
+            Some(Arc::new(move |request| Box::pin(handler(request))));
     }
 
     /// Hear about a pass that failed on its merits, or a handler's error. Not
@@ -276,9 +300,15 @@ impl Bot {
             self.inner.session.login().await?;
         }
         let reader = ChannelReader::new(self.inner.session.clone(), channel_id);
-        let Some(granted_from) = reader.granted_from().await? else { return Ok(None) };
+        let Some(granted_from) = reader.granted_from().await? else {
+            return Ok(None);
+        };
         let last_seen = reader.newest_id().await?;
-        self.inner.cursors.lock().await.watched.push(Watch { reader, last_seen, handler: boxed(handler) });
+        self.inner.cursors.lock().await.watched.push(Watch {
+            reader,
+            last_seen,
+            handler: boxed(handler),
+        });
         Ok(Some(granted_from))
     }
 
@@ -362,12 +392,21 @@ impl Bot {
 
     /// Whether the bot is hearing the server rather than asking it.
     pub fn listening(&self) -> bool {
-        self.inner.running.lock().unwrap().realtime.as_ref().is_some_and(RealtimeListener::connected)
+        self.inner
+            .running
+            .lock()
+            .unwrap()
+            .realtime
+            .as_ref()
+            .is_some_and(RealtimeListener::connected)
     }
 
     fn start_realtime(&self) {
-        let Some(user_id) = self.inner.session.user_id() else { return };
-        let (listener, mut heard) = RealtimeListener::start(self.realtime_options(format!("user:{user_id}"), None));
+        let Some(user_id) = self.inner.session.user_id() else {
+            return;
+        };
+        let (listener, mut heard) =
+            RealtimeListener::start(self.realtime_options(format!("user:{user_id}"), None));
         let bot = self.clone();
         let task = tokio::spawn(async move {
             while let Some(heard) = heard.recv().await {
@@ -375,7 +414,9 @@ impl Bot {
                     // A request for suggestions carries what it asks and reads
                     // nothing. Every other event means "something you can read
                     // changed", and one drain answers all of them.
-                    Heard::Event(event) if event.event == SUGGEST_EVENT => bot.suggest(&event.payload),
+                    Heard::Event(event) if event.event == SUGGEST_EVENT => {
+                        bot.suggest(&event.payload)
+                    }
                     Heard::Event(_) => bot.soon(),
                     Heard::Error(error) => bot.report(error),
                 }
@@ -399,10 +440,15 @@ impl Bot {
             .session
             .select(&format!("users?select=display_name&id=eq.{user_id}"))
             .await?;
-        let display_name = rows.into_iter().next().and_then(|r| r.display_name).unwrap_or_default();
+        let display_name = rows
+            .into_iter()
+            .next()
+            .and_then(|r| r.display_name)
+            .unwrap_or_default();
         let topic = format!("presence:{}", self.inner.session.server_id());
         let presence = json!({ "userId": user_id, "displayName": display_name });
-        let (listener, mut heard) = RealtimeListener::start(self.realtime_options(topic, Some(presence)));
+        let (listener, mut heard) =
+            RealtimeListener::start(self.realtime_options(topic, Some(presence)));
         let bot = self.clone();
         let task = tokio::spawn(async move {
             while let Some(heard) = heard.recv().await {
@@ -447,7 +493,9 @@ impl Bot {
     }
 
     fn suggest(&self, payload: &Value) {
-        let Some(request) = parse_suggest_request(payload) else { return };
+        let Some(request) = parse_suggest_request(payload) else {
+            return;
+        };
         if self.inner.on_suggest.lock().unwrap().is_none() {
             return;
         }
@@ -471,8 +519,16 @@ impl Bot {
                 let bot_id = self.inner.session.user_id().unwrap_or_default();
                 let payload = suggestions_payload(&request, &bot_id, &items);
                 let topic = format!("user:{}", request.from);
-                if let Err(error) = self.inner.session.broadcast(&topic, SUGGESTIONS_EVENT, &payload).await {
-                    self.report(BotError::new(format!("suggestions for /{}: {error}", request.command)));
+                if let Err(error) = self
+                    .inner
+                    .session
+                    .broadcast(&topic, SUGGESTIONS_EVENT, &payload)
+                    .await
+                {
+                    self.report(BotError::new(format!(
+                        "suggestions for /{}: {error}",
+                        request.command
+                    )));
                 }
             }
             let mut suggesting = self.inner.suggesting.lock().unwrap();
@@ -489,8 +545,12 @@ impl Bot {
     /// One pass over everything this bot can hear. Skipped, not queued, while
     /// another pass is running: that one reads the same rows.
     async fn drain(&self) {
-        let Ok(mut cursors) = self.inner.cursors.try_lock() else { return };
-        let Err(error) = self.drain_with(&mut cursors).await else { return };
+        let Ok(mut cursors) = self.inner.cursors.try_lock() else {
+            return;
+        };
+        let Err(error) = self.drain_with(&mut cursors).await else {
+            return;
+        };
         drop(cursors);
         // A session expires an hour after it is minted, and the only recovery
         // needs no state: sign again with the key the seed derives. 401 and
@@ -531,9 +591,10 @@ impl Bot {
                 panel_id: row.reply_to,
             };
             if let Some(handler) = &handler
-                && let Some(error) = handler(message).await {
-                    self.report(error);
-                }
+                && let Some(error) = handler(message).await
+            {
+                self.report(error);
+            }
         }
 
         // The same pass, not a second timer: one cursor per source, but one
@@ -567,7 +628,9 @@ impl Bot {
         let rows: Vec<IdRow> = self
             .inner
             .session
-            .select(&format!("messages?select=id&to_bot=eq.{me}&order=id.desc&limit=1"))
+            .select(&format!(
+                "messages?select=id&to_bot=eq.{me}&order=id.desc&limit=1"
+            ))
             .await?;
         Ok(rows.first().map_or(0, |r| r.id))
     }
@@ -613,37 +676,65 @@ impl Bot {
     /// Say something in a channel that nobody asked for: a watching bot
     /// noticed something rather than being addressed.
     pub async fn post(&self, channel_id: &str, text: &str) -> Result<()> {
-        self.inner.session.insert("messages", &self.envelope(channel_id, text)).await
+        self.inner
+            .session
+            .insert("messages", &self.envelope(channel_id, text))
+            .await
     }
 
     /// Post a panel, and return its id. Hold on to it: a queue that posts a
     /// new panel per track is the log a panel exists to replace.
-    pub async fn panel(&self, channel_id: &str, blocks: &[Block], options: &PanelOptions) -> Result<Option<i64>> {
+    pub async fn panel(
+        &self,
+        channel_id: &str,
+        blocks: &[Block],
+        options: &PanelOptions,
+    ) -> Result<Option<i64>> {
         // Signed over the empty body, not the blocks: the signature attests
         // who wrote the row, and the panel is structure the client validates
         // itself. Signing a JSON encoding would make a whitespace change break
         // every panel.
         let mut row = self.envelope(channel_id, "");
-        row["blocks"] = json!({ "v": 1, "blocks": blocks });
+        row["blocks"] = panel_blocks(blocks, options.live);
         if let Some(member) = &options.only_for {
             row["ephemeral_for"] = json!(member);
         }
-        let rows: Vec<IdRow> = self.inner.session.insert_returning("messages", &row).await?;
+        let rows: Vec<IdRow> = self
+            .inner
+            .session
+            .insert_returning("messages", &row)
+            .await?;
         Ok(rows.first().map(|r| r.id))
     }
 
     /// Redraw a panel in place. Only the bot that posted it may; the database
     /// announces the edit to everyone who may see the channel.
+    ///
+    /// The redraw is not live: a live panel redrawn here leaves the bar and is
+    /// back in the history. Use [`Bot::edit_panel_live`] to keep it there.
     pub async fn edit_panel(&self, panel_id: i64, blocks: &[Block]) -> Result<()> {
+        self.edit_panel_live(panel_id, blocks, false).await
+    }
+
+    /// Redraw a panel in place, saying whether it is still the bot's current
+    /// one ([`PanelOptions::live`]). Pass `true` on every redraw of a player
+    /// while it plays, and `false` on its last.
+    pub async fn edit_panel_live(&self, panel_id: i64, blocks: &[Block], live: bool) -> Result<()> {
         self.inner
             .session
-            .patch(&format!("messages?id=eq.{panel_id}"), &json!({ "blocks": { "v": 1, "blocks": blocks } }))
+            .patch(
+                &format!("messages?id=eq.{panel_id}"),
+                &json!({ "blocks": panel_blocks(blocks, live) }),
+            )
             .await
     }
 
     /// Take a panel away, for one whose job is done.
     pub async fn delete_panel(&self, panel_id: i64) -> Result<()> {
-        self.inner.session.remove(&format!("messages?id=eq.{panel_id}")).await
+        self.inner
+            .session
+            .remove(&format!("messages?id=eq.{panel_id}"))
+            .await
     }
 
     /// Store a picture for a panel in `channel_id`, and get the block that
@@ -654,12 +745,24 @@ impl Bot {
     /// (BOTS.md §5). **Stored unencrypted**, like the panel. PNG, JPEG, WebP or
     /// GIF. Every call stores a new file: [`delete_image`](Self::delete_image)
     /// the old one when a panel moves on.
-    pub async fn upload_image(&self, channel_id: &str, bytes: Vec<u8>, alt: Option<&str>) -> Result<Block> {
-        let info = image_info(&bytes).ok_or_else(|| BotError::new("upload_image: not a PNG, JPEG, WebP or GIF"))?;
-        let name: String = random_bytes::<16>().iter().map(|b| format!("{b:02x}")).collect();
+    pub async fn upload_image(
+        &self,
+        channel_id: &str,
+        bytes: Vec<u8>,
+        alt: Option<&str>,
+    ) -> Result<Block> {
+        let info = image_info(&bytes)
+            .ok_or_else(|| BotError::new("upload_image: not a PNG, JPEG, WebP or GIF"))?;
+        let name: String = random_bytes::<16>()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let path = format!("{channel_id}/{name}.{}", info.extension);
         let sha256 = b64(&Sha256::digest(&bytes));
-        self.inner.session.upload_object(&self.bucket(), &path, bytes, info.content_type).await?;
+        self.inner
+            .session
+            .upload_object(&self.bucket(), &path, bytes, info.content_type)
+            .await?;
         let mut block = json!({ "type": "image", "path": path, "sha256": sha256 });
         if let Some((width, height)) = info.size {
             block["width"] = json!(width);
@@ -702,7 +805,10 @@ impl Bot {
                 "bot_voice_summons?select=channel_id,summoned_by&bot_id=eq.{me}&order=summoned_at.desc"
             ))
             .await?;
-        Ok(rows.into_iter().map(|r| (r.channel_id, r.summoned_by)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.channel_id, r.summoned_by))
+            .collect())
     }
 
     /// Join a voice channel, and get something to play through.
@@ -726,7 +832,10 @@ impl Bot {
         let me = self.inner.session.require_user_id()?;
         self.inner
             .session
-            .rpc::<Value>("dismiss_bot_from_voice", &json!({ "p_bot": me, "p_channel": channel_id }))
+            .rpc::<Value>(
+                "dismiss_bot_from_voice",
+                &json!({ "p_bot": me, "p_channel": channel_id }),
+            )
             .await
             .map(drop)
     }
@@ -777,13 +886,72 @@ mod tests {
         bot.reply_privately(&to, "hi").await.unwrap();
 
         let row = inserted.lock().unwrap()[0].clone();
-        assert_eq!((row["nonce"].as_str(), row["key_version"].as_i64()), (Some(""), Some(0)));
-        assert_eq!((row["reply_to"].as_i64(), row["ephemeral_for"].as_str()), (Some(42), Some("s")));
+        assert_eq!(
+            (row["nonce"].as_str(), row["key_version"].as_i64()),
+            (Some(""), Some(0))
+        );
+        assert_eq!(
+            (row["reply_to"].as_i64(), row["ephemeral_for"].as_str()),
+            (Some(42), Some("s"))
+        );
         assert!(verify_signature(
             "chatmsg:v1:c:0::hi",
             row["signature"].as_str().unwrap(),
             &bot.session().identity().public_key
         ));
+    }
+
+    /// The panel rows a bot writes, as the server sees them.
+    async fn panel_rows(write: impl AsyncFnOnce(&Bot)) -> Vec<Value> {
+        let written = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let seen = written.clone();
+        let server = TestServer::start(move |req| {
+            seen.lock().unwrap().push(req.body.clone());
+            (201, json!([{ "id": 7 }]))
+        })
+        .await;
+        let bot = Bot::new(server.session("bot"));
+        write(&bot).await;
+        written.lock().unwrap().clone()
+    }
+
+    #[tokio::test]
+    async fn a_live_panel_is_written_with_live_true() {
+        let blocks = [crate::panel::heading("Now playing")];
+        let rows = panel_rows(async |bot: &Bot| {
+            let live = PanelOptions {
+                live: true,
+                ..Default::default()
+            };
+            bot.panel("c", &blocks, &live).await.unwrap();
+            bot.edit_panel_live(7, &blocks, true).await.unwrap();
+        })
+        .await;
+        assert_eq!(
+            rows[0]["blocks"],
+            json!({ "v": 1, "live": true, "blocks": blocks })
+        );
+        assert_eq!(
+            rows[1],
+            json!({ "blocks": { "v": 1, "live": true, "blocks": blocks } })
+        );
+    }
+
+    #[tokio::test]
+    async fn an_edit_without_live_leaves_it_out() {
+        let blocks = [crate::panel::heading("Left the call")];
+        let rows = panel_rows(async |bot: &Bot| {
+            bot.panel("c", &blocks, &PanelOptions::default())
+                .await
+                .unwrap();
+            bot.edit_panel(7, &blocks).await.unwrap();
+            bot.edit_panel_live(7, &blocks, false).await.unwrap();
+        })
+        .await;
+        assert_eq!(rows[0]["blocks"], json!({ "v": 1, "blocks": blocks }));
+        for row in &rows[1..] {
+            assert_eq!(row, &json!({ "blocks": { "v": 1, "blocks": blocks } }));
+        }
     }
 
     /// One pass at a time, and each command once: a press counted twice is a
@@ -798,9 +966,19 @@ mod tests {
         ]);
         let server = TestServer::start(move |req| {
             // Only rows past the cursor, as PostgREST would.
-            let after: i64 = req.path.split("id=gt.").nth(1).and_then(|s| s.split('&').next()?.parse().ok()).unwrap_or(0);
-            let fresh: Vec<Value> =
-                rows.as_array().unwrap().iter().filter(|r| r["id"].as_i64().unwrap() > after).cloned().collect();
+            let after: i64 = req
+                .path
+                .split("id=gt.")
+                .nth(1)
+                .and_then(|s| s.split('&').next()?.parse().ok())
+                .unwrap_or(0);
+            let fresh: Vec<Value> = rows
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|r| r["id"].as_i64().unwrap() > after)
+                .cloned()
+                .collect();
             (200, Value::Array(fresh))
         })
         .await;

@@ -156,6 +156,17 @@ a menu option's value. It is signed like a command, because it is attributed —
 the bot is told who pressed. It is **not a message**: no view renders it, no
 phone rings for it, and it does not count as unread.
 
+A panel may carry `"live": true` beside `v` and `blocks`
+(`{"v":1,"live":true,"blocks":[…]}`): the bot says this panel is its current
+one, a player while it plays. Clients then draw it in the bar above the
+channel's message box instead of in the history, **and only while its bot is
+connected** — a bot that crashed cannot take the mark back. Only the JSON
+boolean counts; `"true"`, a string, is not live. The bot drops the key (or
+writes `false`) on its last redraw, and the panel is drawn back in the history
+where it was posted, as that redraw says. A server finds them with
+`channel_live_messages`, so a live panel is in the bar however far up the chat
+it was posted. The blocks are the same eight; nothing else changes.
+
 The bot redraws by writing `blocks` again on the same row and ringing
 `message_changed` with its id. Ringing `new_message` makes clients fetch what is
 *newer* than they have, and a redraw is not newer than anything.

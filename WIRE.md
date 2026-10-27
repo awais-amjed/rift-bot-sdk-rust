@@ -167,6 +167,12 @@ where it was posted, as that redraw says. A server finds them with
 `channel_live_messages`, so a live panel is in the bar however far up the chat
 it was posted. The blocks are the same eight; nothing else changes.
 
+Clients show **one live panel per bot**, its newest. A bot that was killed
+never cleared its last one, so on start it should redraw any panel it left
+live without the mark — it can read its own rows, `sender_id` itself and
+`blocks->live` true — before posting a new one; until it does, its old player
+would be back in the bar the moment it reconnects.
+
 The bot redraws by writing `blocks` again on the same row and ringing
 `message_changed` with its id. Ringing `new_message` makes clients fetch what is
 *newer* than they have, and a redraw is not newer than anything.

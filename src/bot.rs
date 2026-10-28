@@ -84,14 +84,22 @@ pub struct PanelOptions {
     /// while the bot is connected, so it does not scroll away. Redraw with
     /// [`Bot::edit_panel_live`] to keep it there. WIRE.md §5.
     pub live: bool,
+    /// The voice channel a live panel plays to. It is then the call's: everyone
+    /// who can see that channel may read and press it, even from outside the
+    /// channel it was posted in, and Rift shows it to the people in the call
+    /// in every channel they read. Check a press came from somebody in the
+    /// call all the same. Ignored without `live`; a server from before it
+    /// ignores it too. Redraw with [`Bot::edit_panel_in_call`]. WIRE.md §5.
+    pub call: Option<String>,
 }
 
-/// A panel row's `blocks` column: `live` only when it is.
-fn panel_blocks(blocks: &[Block], live: bool) -> Value {
-    if live {
-        json!({ "v": 1, "live": true, "blocks": blocks })
-    } else {
-        json!({ "v": 1, "blocks": blocks })
+/// A panel row's `blocks` column: `live` only when it is, and `call` only on a
+/// live one.
+fn panel_blocks(blocks: &[Block], live: bool, call: Option<&str>) -> Value {
+    match (live, call) {
+        (true, Some(call)) => json!({ "v": 1, "live": true, "call": call, "blocks": blocks }),
+        (true, None) => json!({ "v": 1, "live": true, "blocks": blocks }),
+        (false, _) => json!({ "v": 1, "blocks": blocks }),
     }
 }
 
@@ -715,7 +723,7 @@ impl Bot {
         // itself. Signing a JSON encoding would make a whitespace change break
         // every panel.
         let mut row = self.envelope(channel_id, "");
-        row["blocks"] = panel_blocks(blocks, options.live);
+        row["blocks"] = panel_blocks(blocks, options.live, options.call.as_deref());
         if let Some(member) = &options.only_for {
             row["ephemeral_for"] = json!(member);
         }
@@ -740,11 +748,29 @@ impl Bot {
     /// one ([`PanelOptions::live`]). Pass `true` on every redraw of a player
     /// while it plays, and `false` on its last.
     pub async fn edit_panel_live(&self, panel_id: i64, blocks: &[Block], live: bool) -> Result<()> {
+        self.patch_panel(panel_id, panel_blocks(blocks, live, None))
+            .await
+    }
+
+    /// Redraw a live panel that plays to the voice channel [call]
+    /// ([`PanelOptions::call`]), keeping it the call's. Its last redraw, when
+    /// it stops, is [`Bot::edit_panel_live`] with `false`.
+    pub async fn edit_panel_in_call(
+        &self,
+        panel_id: i64,
+        blocks: &[Block],
+        call: &str,
+    ) -> Result<()> {
+        self.patch_panel(panel_id, panel_blocks(blocks, true, Some(call)))
+            .await
+    }
+
+    async fn patch_panel(&self, panel_id: i64, blocks: Value) -> Result<()> {
         self.inner
             .session
             .patch(
                 &format!("messages?id=eq.{panel_id}"),
-                &json!({ "blocks": panel_blocks(blocks, live) }),
+                &json!({ "blocks": blocks }),
             )
             .await
     }
@@ -955,6 +981,35 @@ mod tests {
             rows[1],
             json!({ "blocks": { "v": 1, "live": true, "blocks": blocks } })
         );
+    }
+
+    #[tokio::test]
+    async fn a_live_panel_names_its_call() {
+        let blocks = [crate::panel::heading("Now playing")];
+        let rows = panel_rows(async |bot: &Bot| {
+            let live = PanelOptions {
+                live: true,
+                call: Some("v".into()),
+                ..Default::default()
+            };
+            bot.panel("c", &blocks, &live).await.unwrap();
+            bot.edit_panel_in_call(7, &blocks, "v").await.unwrap();
+            let not_live = PanelOptions {
+                call: Some("v".into()),
+                ..Default::default()
+            };
+            bot.panel("c", &blocks, &not_live).await.unwrap();
+        })
+        .await;
+        assert_eq!(
+            rows[0]["blocks"],
+            json!({ "v": 1, "live": true, "call": "v", "blocks": blocks })
+        );
+        assert_eq!(
+            rows[1],
+            json!({ "blocks": { "v": 1, "live": true, "call": "v", "blocks": blocks } })
+        );
+        assert_eq!(rows[2]["blocks"], json!({ "v": 1, "blocks": blocks }));
     }
 
     #[tokio::test]

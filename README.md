@@ -96,8 +96,8 @@ with one change: the published SDK never tells the server a two-channel track
 is stereo, so every bot built on it (LiveKit's Node and Python SDKs included)
 is mono. The fork is on crates.io as
 [`joinrift-livekit`](https://crates.io/crates/joinrift-livekit), and
-[`RIFT.md`](https://github.com/awais-amjed/livekit-rust-sdks/blob/rift/RIFT.md)
-on its `rift` branch has the details. This crate moves back to LiveKit's own
+[`RIFT.md`](https://github.com/awais-amjed/livekit-rust-sdks/blob/rift-crates/RIFT.md)
+on its `rift-crates` branch has the details. This crate moves back to LiveKit's own
 once LiveKit ships the fix. The TypeScript SDK gets the same fix through
 `@joinrift/rtc-node`, LiveKit's Node SDK on bindings built from the fork.
 
